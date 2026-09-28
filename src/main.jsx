@@ -1,21 +1,194 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-
 import PeraWalletConnect from "@perawallet/connect";
-
-import { wrapFetchWithPayment } from "@x402/fetch";
-import { x402Client } from "@x402/core/client";
-import { ExactAvmClient } from "@x402/avm";
+import algosdk from "algosdk";
 
 import "./style.css";
 
-const peraWallet = new PeraWalletConnect();
+const peraWallet = new PeraWalletConnect({
+  chainId: 416001,
+});
+
+const TRUST402_URL =
+  "https://trust402.daud9.deno.net/v1/trust";
+
+const ALGOD_URL =
+  "https://mainnet-api.algonode.cloud";
+
+function encodeBase64Json(value) {
+  const bytes = new TextEncoder().encode(
+    JSON.stringify(value),
+  );
+
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (
+    let i = 0;
+    i < bytes.length;
+    i += chunkSize
+  ) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(i, i + chunkSize),
+    );
+  }
+
+  return btoa(binary);
+}
+
+function decodeBase64Json(value) {
+  const binary = atob(value);
+  const bytes = Uint8Array.from(
+    binary,
+    (char) => char.charCodeAt(0),
+  );
+
+  return JSON.parse(
+    new TextDecoder().decode(bytes),
+  );
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (
+    let i = 0;
+    i < bytes.length;
+    i += chunkSize
+  ) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(i, i + chunkSize),
+    );
+  }
+
+  return btoa(binary);
+}
+
+async function getPaymentRequired(response) {
+  const header =
+    response.headers.get("PAYMENT-REQUIRED");
+
+  if (!header) {
+    throw new Error(
+      "Trust402 did not return a PAYMENT-REQUIRED header.",
+    );
+  }
+
+  return decodeBase64Json(header);
+}
+
+async function createPayment(
+  paymentRequired,
+  account,
+) {
+  const requirements =
+    paymentRequired.accepts?.find(
+      (item) =>
+        item.scheme === "exact" &&
+        item.network ===
+          "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k",
+    );
+
+  if (!requirements) {
+    throw new Error(
+      "No compatible Algorand MainNet payment requirement was returned.",
+    );
+  }
+
+  if (requirements.asset !== "31566704") {
+    throw new Error(
+      `Unexpected payment asset: ${requirements.asset}`,
+    );
+  }
+
+  const amount = BigInt(requirements.amount);
+
+  const algod = new algosdk.Algodv2(
+    "",
+    ALGOD_URL,
+    "",
+  );
+
+  const suggestedParams =
+    await algod
+      .getTransactionParams()
+      .do();
+
+  const transaction =
+    algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject(
+      {
+        sender: account,
+        receiver: requirements.payTo,
+        amount,
+        assetIndex: BigInt(requirements.asset),
+        suggestedParams,
+      },
+    );
+
+  algosdk.assignGroupID([transaction]);
+
+  const unsignedTxn =
+    algosdk.encodeUnsignedTransaction(
+      transaction,
+    );
+
+  const signedTxns =
+    await peraWallet.signTransaction([
+      [
+        {
+          txn: unsignedTxn,
+          signers: [account],
+        },
+      ],
+    ]);
+
+  if (!signedTxns?.length) {
+    throw new Error(
+      "Pera Wallet did not return a signed transaction.",
+    );
+  }
+
+  const signedTxn =
+    signedTxns[0];
+
+  const paymentPayload = {
+    x402Version: 2,
+
+    resource:
+      paymentRequired.resource,
+
+    accepted: requirements,
+
+    payload: {
+      paymentIndex: 0,
+
+      paymentGroup: [
+        bytesToBase64(signedTxn),
+      ],
+    },
+
+    extensions:
+      paymentRequired.extensions || {},
+  };
+
+  return encodeBase64Json(
+    paymentPayload,
+  );
+}
 
 function App() {
-  const [account, setAccount] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+  const [account, setAccount] =
+    useState(null);
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [result, setResult] =
+    useState(null);
+
+  const [error, setError] =
+    useState(null);
 
   useEffect(() => {
     peraWallet
@@ -32,15 +205,20 @@ function App() {
     try {
       setError(null);
 
-      const accounts = await peraWallet.connect();
+      const accounts =
+        await peraWallet.connect();
 
       if (!accounts?.length) {
-        throw new Error("No Pera account was returned.");
+        throw new Error(
+          "No Pera account was returned.",
+        );
       }
 
       setAccount(accounts[0]);
     } catch (err) {
-      setError(err?.message || String(err));
+      setError(
+        err?.message || String(err),
+      );
     }
   };
 
@@ -51,7 +229,9 @@ function App() {
 
   const pay = async () => {
     if (!account) {
-      setError("Connect Pera Wallet first.");
+      setError(
+        "Connect Pera Wallet first.",
+      );
       return;
     }
 
@@ -60,76 +240,85 @@ function App() {
     setError(null);
 
     try {
-      const signer = {
-        address: account,
-
-        signTransactions: async (
-          txns,
-          indexesToSign,
-        ) => {
-          const txnGroup = txns.map((txn, i) => ({
-            txn,
-            signers:
-              indexesToSign &&
-              !indexesToSign.includes(i)
-                ? []
-                : [account],
-          }));
-
-          const signedTxns =
-            await peraWallet.signTransaction([
-              txnGroup,
-            ]);
-
-          return txns.map((_, i) => {
-            if (
-              indexesToSign &&
-              !indexesToSign.includes(i)
-            ) {
-              return null;
-            }
-
-            return signedTxns.shift() ?? null;
-          });
-        },
-      };
-
-      const client = new x402Client().register(
-        "algorand:*",
-        new ExactAvmClient(signer),
-      );
-
-      const fetchWithPayment =
-        wrapFetchWithPayment(
-          fetch,
-          client,
+      // First request: obtain the x402 payment requirements.
+      const firstResponse =
+        await fetch(
+          TRUST402_URL,
+          {
+            method: "POST",
+            headers: {
+              "content-type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              target: "TEST-AGENT",
+            }),
+          },
         );
 
-      const response = await fetchWithPayment(
-        "https://trust402.daud9.deno.net/v1/trust",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            target: "TEST-AGENT",
-          }),
-        },
-      );
+      if (
+        firstResponse.status !== 402
+      ) {
+        const data =
+          await firstResponse
+            .json()
+            .catch(() => null);
 
-      const data = await response.json();
-
-      if (!response.ok) {
         throw new Error(
           data?.message ||
-            `Request failed: HTTP ${response.status}`,
+            `Expected HTTP 402, received HTTP ${firstResponse.status}.`,
+        );
+      }
+
+      const paymentRequired =
+        await getPaymentRequired(
+          firstResponse,
+        );
+
+      // Build and sign the Algorand USDC payment.
+      const paymentHeader =
+        await createPayment(
+          paymentRequired,
+          account,
+        );
+
+      // Retry the same request with payment.
+      const paidResponse =
+        await fetch(
+          TRUST402_URL,
+          {
+            method: "POST",
+            headers: {
+              "content-type":
+                "application/json",
+
+              "PAYMENT-SIGNATURE":
+                paymentHeader,
+            },
+            body: JSON.stringify({
+              target: "TEST-AGENT",
+            }),
+          },
+        );
+
+      const data =
+        await paidResponse
+          .json()
+          .catch(() => null);
+
+      if (!paidResponse.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            `Payment request failed: HTTP ${paidResponse.status}`,
         );
       }
 
       setResult(data);
     } catch (err) {
-      setError(err?.message || String(err));
+      setError(
+        err?.message || String(err),
+      );
     } finally {
       setLoading(false);
     }
@@ -145,14 +334,21 @@ function App() {
         </p>
 
         {!account ? (
-          <button onClick={connectWallet}>
+          <button
+            onClick={connectWallet}
+          >
             Connect Pera Wallet
           </button>
         ) : (
           <>
             <div className="wallet">
-              <strong>Connected wallet</strong>
-              <span>{account}</span>
+              <strong>
+                Connected wallet
+              </strong>
+
+              <span>
+                {account}
+              </span>
             </div>
 
             <button
@@ -176,7 +372,10 @@ function App() {
 
         {error && (
           <div className="error">
-            <strong>Payment failed</strong>
+            <strong>
+              Payment failed
+            </strong>
+
             <p>{error}</p>
           </div>
         )}
