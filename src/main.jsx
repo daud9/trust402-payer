@@ -76,8 +76,8 @@ const client = new x402Client({
 });
 
 client.register(
-  "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
-  new ExactAvmScheme(signer),
+  "algorand:*",
+  new ExactAvmClient(signer),
 );
 
 const response = await client.fetch(
