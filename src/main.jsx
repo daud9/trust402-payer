@@ -128,20 +128,15 @@ async function createPayment(
 
   algosdk.assignGroupID([transaction]);
 
-  const unsignedTxn =
-    algosdk.encodeUnsignedTransaction(
-      transaction,
-    );
-
   const signedTxns =
-    await peraWallet.signTransaction([
-      [
-        {
-          txn: unsignedTxn,
-          signers: [account],
-        },
-      ],
-    ]);
+  await peraWallet.signTransaction([
+    [
+      {
+        txn: transaction,
+        signers: [account],
+      },
+    ],
+  ]);
 
   if (!signedTxns?.length) {
     throw new Error(
