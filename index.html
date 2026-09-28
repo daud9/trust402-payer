@@ -11,6 +11,22 @@
 
   <body>
     <div id="root"></div>
+<script>
+  window.addEventListener("error", function (event) {
+    document.body.innerHTML +=
+      '<pre style="color:red;white-space:pre-wrap;padding:20px">' +
+      "JavaScript error: " + event.message +
+      "</pre>";
+  });
+
+  window.addEventListener("unhandledrejection", function (event) {
+    document.body.innerHTML +=
+      '<pre style="color:red;white-space:pre-wrap;padding:20px">' +
+      "Promise error: " + String(event.reason) +
+      "</pre>";
+  });
+</script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
