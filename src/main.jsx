@@ -144,6 +144,8 @@ async function createPayment(
     );
   }
 
+const signedTxn = signedTxns[0];
+
   const paymentPayload = {
   x402Version: 2,
   scheme: requirements.scheme,
