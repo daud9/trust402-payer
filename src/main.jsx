@@ -237,15 +237,9 @@ function App() {
 
     try {
       firstResponse = await fetch(
-  TRUST402_URL,
+  "https://trust402.daud9.deno.net/cors-test",
   {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=UTF-8",
-    },
-    body: JSON.stringify({
-      target: "TEST-AGENT",
-    }),
+    method: "GET",
   },
 );
     } catch (err) {
@@ -260,9 +254,11 @@ function App() {
       "Reading payment requirements...",
     );
 
-    if (firstResponse.status !== 402) {
-      const text =
-        await firstResponse.text().catch(() => "");
+    if (firstResponse.status !== 200) {
+      const testData = await firstResponse.json();
+
+setResult(testData);
+return;
 
       throw new Error(
         `STEP 1 FAILED: Expected HTTP 402, received HTTP ${firstResponse.status}.\n\n` +
