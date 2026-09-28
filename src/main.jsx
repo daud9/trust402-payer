@@ -231,40 +231,61 @@ function App() {
 
   try {
     // STEP 1: Request payment requirements
-    setError("Step 1: contacting Trust402...");
+    setError("Testing POST /v1/trust...");
 
-    let firstResponse;
+let firstResponse;
 
-    try {
-      firstResponse = await fetch(
-  "https://trust402.daud9.deno.net/cors-test",
-  {
-    method: "GET",
+try {
+  firstResponse = await fetch(
+    TRUST402_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+      },
+      body: JSON.stringify({
+        target: "TEST-AGENT",
+      }),
+    },
+  );
+} catch (err) {
+  throw new Error(
+    "POST /v1/trust FAILED:\n\n" +
+    String(err?.message || err),
+  );
+}
+
+const paymentHeader =
+  firstResponse.headers.get(
+    "PAYMENT-REQUIRED",
+  );
+
+const allHeaders = {};
+
+firstResponse.headers.forEach(
+  (value, key) => {
+    allHeaders[key] = value;
   },
 );
-    } catch (err) {
-      throw new Error(
-        "STEP 1 FAILED: Could not reach Trust402.\n\n" +
-        String(err?.message || err),
-      );
-    }
 
-    setError(
-      `Step 1 successful: Trust402 returned HTTP ${firstResponse.status}.\n\n` +
-      "Reading payment requirements...",
-    );
+const responseBody =
+  await firstResponse.text();
 
-    if (firstResponse.status !== 200) {
-      const testData = await firstResponse.json();
-
-setResult(testData);
-return;
-
-      throw new Error(
-        `STEP 1 FAILED: Expected HTTP 402, received HTTP ${firstResponse.status}.\n\n` +
-        text,
-      );
-    }
+throw new Error(
+  `TRUST402 RESPONSE\n\n` +
+  `HTTP STATUS: ${firstResponse.status}\n\n` +
+  `PAYMENT-REQUIRED: ${
+    paymentHeader
+      ? "PRESENT"
+      : "MISSING"
+  }\n\n` +
+  `HEADERS:\n${JSON.stringify(
+    allHeaders,
+    null,
+    2,
+  )}\n\n` +
+  `BODY:\n${responseBody}`,
+);
 
     // STEP 2: Read payment requirements
     let paymentRequired;
