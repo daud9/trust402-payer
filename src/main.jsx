@@ -255,7 +255,7 @@ try {
   );
 }
 
-const paymentHeader =
+const rawPaymentHeader =
   firstResponse.headers.get(
     "PAYMENT-REQUIRED",
   );
@@ -275,10 +275,10 @@ throw new Error(
   `TRUST402 RESPONSE\n\n` +
   `HTTP STATUS: ${firstResponse.status}\n\n` +
   `PAYMENT-REQUIRED: ${
-    paymentHeader
-      ? "PRESENT"
-      : "MISSING"
-  }\n\n` +
+  rawPaymentHeader
+    ? "PRESENT"
+    : "MISSING"
+}`\n\n` +
   `HEADERS:\n${JSON.stringify(
     allHeaders,
     null,
