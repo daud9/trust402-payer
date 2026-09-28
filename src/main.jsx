@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import PeraWalletConnect from "@perawallet/connect";
+import { PeraWalletConnect } from "@perawallet/connect";
 import algosdk from "algosdk";
 
 import "./style.css";
