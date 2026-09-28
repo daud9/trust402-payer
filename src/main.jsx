@@ -430,7 +430,7 @@ function App() {
   );
 }
 
-createRoot(
+finally(
   document.getElementById("root"),
 ).render(
   <React.StrictMode>
