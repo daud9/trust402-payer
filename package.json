@@ -9,12 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@perawallet/connect": "latest",
-    "@x402/avm": "latest",
-    "@x402/core": "latest",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  },
+  "@perawallet/connect": "latest",
+  "@x402/avm": "latest",
+  "@x402/core": "latest",
+  "@x402/fetch": "latest",
+  "react": "^19.0.0",
+  "react-dom": "^19.0.0"
+}
   "devDependencies": {
   "@vitejs/plugin-react": "4.4.1",
   "vite": "6.2.6"
