@@ -11,7 +11,7 @@ import {
 import { pera } from "@txnlab/use-wallet-pera";
 
 import { x402Client } from "@x402/core/client";
-import { registerExactAvmScheme } from "@x402/avm/exact/client";
+import { ExactAvmClient } from "@x402/avm";
 
 import "./style.css";
 
@@ -71,9 +71,7 @@ function Payer() {
   },
 };
 
-const client = new x402Client({
-  schemes: [],
-});
+const client = new x402Client();
 
 client.register(
   "algorand:*",
