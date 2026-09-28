@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-  "@perawallet/connect": "latest",
+  "@perawallet/connect": "1.5.2",
   "@x402/avm": "latest",
   "@x402/core": "latest",
   "@x402/fetch": "latest",
