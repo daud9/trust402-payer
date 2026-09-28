@@ -304,9 +304,38 @@ try {
 }
 
 if (!paidResponse.ok) {
+  const responseText = await paidResponse.text();
+
+  const paymentRequiredError =
+    paidResponse.headers.get("PAYMENT-REQUIRED");
+
   const paymentResponse =
     paidResponse.headers.get("PAYMENT-RESPONSE");
 
+  let errorDetails = responseText || "{}";
+
+  if (paymentRequiredError) {
+    try {
+      const decodedError =
+        decodeBase64Json(paymentRequiredError);
+
+      errorDetails = JSON.stringify(
+        decodedError,
+        null,
+        2,
+      );
+    } catch {
+      errorDetails =
+        paymentRequiredError;
+    }
+  }
+
+  throw new Error(
+    `HTTP ${paidResponse.status}\n\n` +
+    `x402 error:\n${errorDetails}\n\n` +
+    `PAYMENT-RESPONSE:\n${paymentResponse || "none"}`,
+  );
+}
   throw new Error(
     `HTTP ${paidResponse.status}\n\n` +
     `Response:\n${JSON.stringify(data, null, 2)}\n\n` +
