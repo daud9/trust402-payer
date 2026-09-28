@@ -432,7 +432,7 @@ function App() {
 
 finally{
   document.getElementById("root"),
-.render(
+render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,
