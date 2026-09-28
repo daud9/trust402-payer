@@ -144,28 +144,23 @@ async function createPayment(
     );
   }
 
-  const signedTxn =
-    signedTxns[0];
-
   const paymentPayload = {
-    x402Version: 2,
-
-    resource:
-      paymentRequired.resource,
-
-    accepted: requirements,
-
-    payload: {
-      paymentIndex: 0,
-
-      paymentGroup: [
-        bytesToBase64(signedTxn),
-      ],
-    },
-
-    extensions:
-      paymentRequired.extensions || {},
-  };
+  x402Version: 2,
+  scheme: requirements.scheme,
+  network: requirements.network,
+  resource: paymentRequired.resource,
+  accepted: requirements,
+  payload: {
+    paymentIndex: 0,
+    paymentGroup: [
+      bytesToBase64(signedTxn),
+    ],
+  },
+  extensions:
+    paymentRequired.extensions || {},
+  outputSchema:
+    paymentRequired.outputSchema || null,
+};
 
   return encodeBase64Json(
     paymentPayload,
