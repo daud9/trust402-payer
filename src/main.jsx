@@ -10,7 +10,7 @@ const peraWallet = new PeraWalletConnect({
 });
 
 const TRUST402_URL =
-  "https://trust402.daud9.deno.net/post-test";
+  "https://trust402.daud9.deno.net/v1/trust";
 
 const ALGOD_URL =
   "https://mainnet-api.algonode.cloud";
