@@ -64,33 +64,34 @@ function Payer() {
 
     try {
       const signer = {
-        address: activeAddress,
+  address: activeAddress,
 
-        signTransactions: async (txns, indexes) => {
-          return signTransactions(txns, indexes);
-        },
-      };
+  signTransactions: async (txns, indexes) => {
+    return signTransactions(txns, indexes);
+  },
+};
 
-      const client = new x402Client({
-        schemes: [],
-      });
+const client = new x402Client({
+  schemes: [],
+});
 
-      registerExactAvmScheme(client, {
-        signer,
-      });
+client.register(
+  "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+  new ExactAvmScheme(signer),
+);
 
-      const response = await client.fetch(
-        "https://trust402.daud9.deno.net/v1/trust",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            target: "TEST-AGENT",
-          }),
-        },
-      );
+const response = await client.fetch(
+  "https://trust402.daud9.deno.net/v1/trust",
+  {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      target: "TEST-AGENT",
+    }),
+  },
+);
 
       const data = await response.json();
 
