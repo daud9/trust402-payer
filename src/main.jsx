@@ -427,12 +427,12 @@ function App() {
         )}
       </section>
     </main>
-  );
+);
 }
 
-finally{
+createRoot(
   document.getElementById("root"),
-render(
+).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,
