@@ -237,17 +237,17 @@ function App() {
 
     try {
       firstResponse = await fetch(
-        TRUST402_URL,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            target: "TEST-AGENT",
-          }),
-        },
-      );
+  TRUST402_URL,
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=UTF-8",
+    },
+    body: JSON.stringify({
+      target: "TEST-AGENT",
+    }),
+  },
+);
     } catch (err) {
       throw new Error(
         "STEP 1 FAILED: Could not reach Trust402.\n\n" +
