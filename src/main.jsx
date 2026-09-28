@@ -1,59 +1,56 @@
-import React, { useCallback, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import {
-  WalletProvider,
-  WalletManager,
-  NetworkId,
-  useWallet,
-} from "@txnlab/use-wallet-react";
+import PeraWalletConnect from "@perawallet/connect";
 
-import { pera } from "@txnlab/use-wallet-pera";
-
+import { wrapFetchWithPayment } from "@x402/fetch";
 import { x402Client } from "@x402/core/client";
 import { ExactAvmClient } from "@x402/avm";
 
 import "./style.css";
 
-const manager = new WalletManager({
-  wallets: [pera()],
-  defaultNetwork: NetworkId.MAINNET,
-});
+const peraWallet = new PeraWalletConnect();
 
-function Payer() {
-  const {
-    activeAccount,
-    activeAddress,
-    isReady,
-    signTransactions,
-    disconnect,
-    wallets,
-  } = useWallet();
-
+function App() {
+  const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const connectPera = async () => {
+  useEffect(() => {
+    peraWallet
+      .reconnectSession()
+      .then((accounts) => {
+        if (accounts?.length) {
+          setAccount(accounts[0]);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const connectWallet = async () => {
     try {
       setError(null);
 
-      const peraWallet = wallets.find(
-        (wallet) => wallet.id === "pera",
-      );
+      const accounts = await peraWallet.connect();
 
-      if (!peraWallet) {
-        throw new Error("Pera Wallet is not available.");
+      if (!accounts?.length) {
+        throw new Error("No Pera account was returned.");
       }
 
-      await peraWallet.connect();
+      setAccount(accounts[0]);
     } catch (err) {
       setError(err?.message || String(err));
     }
   };
 
-  const pay = useCallback(async () => {
-    if (!activeAddress) {
+  const disconnectWallet = () => {
+    peraWallet.disconnect();
+    setAccount(null);
+  };
+
+  const pay = async () => {
+    if (!account) {
       setError("Connect Pera Wallet first.");
       return;
     }
@@ -64,32 +61,62 @@ function Payer() {
 
     try {
       const signer = {
-  address: activeAddress,
+        address: account,
 
-  signTransactions: async (txns, indexes) => {
-    return signTransactions(txns, indexes);
-  },
-};
+        signTransactions: async (
+          txns,
+          indexesToSign,
+        ) => {
+          const txnGroup = txns.map((txn, i) => ({
+            txn,
+            signers:
+              indexesToSign &&
+              !indexesToSign.includes(i)
+                ? []
+                : [account],
+          }));
 
-const client = new x402Client();
+          const signedTxns =
+            await peraWallet.signTransaction([
+              txnGroup,
+            ]);
 
-client.register(
-  "algorand:*",
-  new ExactAvmClient(signer),
-);
+          return txns.map((_, i) => {
+            if (
+              indexesToSign &&
+              !indexesToSign.includes(i)
+            ) {
+              return null;
+            }
 
-const response = await client.fetch(
-  "https://trust402.daud9.deno.net/v1/trust",
-  {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      target: "TEST-AGENT",
-    }),
-  },
-);
+            return signedTxns.shift() ?? null;
+          });
+        },
+      };
+
+      const client = new x402Client().register(
+        "algorand:*",
+        new ExactAvmClient(signer),
+      );
+
+      const fetchWithPayment =
+        wrapFetchWithPayment(
+          fetch,
+          client,
+        );
+
+      const response = await fetchWithPayment(
+        "https://trust402.daud9.deno.net/v1/trust",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            target: "TEST-AGENT",
+          }),
+        },
+      );
 
       const data = await response.json();
 
@@ -106,20 +133,7 @@ const response = await client.fetch(
     } finally {
       setLoading(false);
     }
-  }, [activeAddress, signTransactions]);
-
-  if (!isReady) {
-    return (
-      <main>
-        <section className="card">
-          <h1>Trust402</h1>
-          <p className="subtitle">
-            Loading Pera Wallet...
-          </p>
-        </section>
-      </main>
-    );
-  }
+  };
 
   return (
     <main>
@@ -130,17 +144,15 @@ const response = await client.fetch(
           Algorand MainNet x402 payment test
         </p>
 
-        {!activeAccount ? (
-          <button onClick={connectPera}>
+        {!account ? (
+          <button onClick={connectWallet}>
             Connect Pera Wallet
           </button>
         ) : (
           <>
             <div className="wallet">
               <strong>Connected wallet</strong>
-              <span>
-                {activeAddress}
-              </span>
+              <span>{account}</span>
             </div>
 
             <button
@@ -154,7 +166,7 @@ const response = await client.fetch(
 
             <button
               className="secondary"
-              onClick={() => disconnect()}
+              onClick={disconnectWallet}
               disabled={loading}
             >
               Disconnect
@@ -171,22 +183,21 @@ const response = await client.fetch(
 
         {result && (
           <div className="success">
-            <strong>Payment successful ✓</strong>
+            <strong>
+              Payment successful ✓
+            </strong>
+
             <pre>
-              {JSON.stringify(result, null, 2)}
+              {JSON.stringify(
+                result,
+                null,
+                2,
+              )}
             </pre>
           </div>
         )}
       </section>
     </main>
-  );
-}
-
-function App() {
-  return (
-    <WalletProvider manager={manager}>
-      <Payer />
-    </WalletProvider>
   );
 }
 
