@@ -220,139 +220,183 @@ function App() {
   };
 
   const pay = async () => {
-    if (!account) {
-      setError(
-        "Connect Pera Wallet first.",
-      );
-      return;
-    }
+  if (!account) {
+    setError("Connect Pera Wallet first.");
+    return;
+  }
 
-    setLoading(true);
-    setResult(null);
-    setError(null);
+  setLoading(true);
+  setResult(null);
+  setError(null);
+
+  try {
+    // STEP 1: Request payment requirements
+    setError("Step 1: contacting Trust402...");
+
+    let firstResponse;
 
     try {
-      // First request: obtain the x402 payment requirements.
-      const firstResponse =
-        await fetch(
-          TRUST402_URL,
-          {
-            method: "POST",
-            headers: {
-              "content-type":
-                "application/json",
-            },
-            body: JSON.stringify({
-              target: "TEST-AGENT",
-            }),
+      firstResponse = await fetch(
+        TRUST402_URL,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        );
+          body: JSON.stringify({
+            target: "TEST-AGENT",
+          }),
+        },
+      );
+    } catch (err) {
+      throw new Error(
+        "STEP 1 FAILED: Could not reach Trust402.\n\n" +
+        String(err?.message || err),
+      );
+    }
 
-      if (
-        firstResponse.status !== 402
-      ) {
-        const data =
-          await firstResponse
-            .json()
-            .catch(() => null);
+    setError(
+      `Step 1 successful: Trust402 returned HTTP ${firstResponse.status}.\n\n` +
+      "Reading payment requirements...",
+    );
 
-        throw new Error(
-          data?.message ||
-            `Expected HTTP 402, received HTTP ${firstResponse.status}.`,
-        );
-      }
+    if (firstResponse.status !== 402) {
+      const text =
+        await firstResponse.text().catch(() => "");
 
-      const paymentRequired =
-        await getPaymentRequired(
-          firstResponse,
-        );
+      throw new Error(
+        `STEP 1 FAILED: Expected HTTP 402, received HTTP ${firstResponse.status}.\n\n` +
+        text,
+      );
+    }
 
-            // Build and sign the Algorand USDC payment.
-      const paymentHeader =
+    // STEP 2: Read payment requirements
+    let paymentRequired;
+
+    try {
+      paymentRequired =
+        await getPaymentRequired(firstResponse);
+    } catch (err) {
+      throw new Error(
+        "STEP 2 FAILED: Could not read PAYMENT-REQUIRED header.\n\n" +
+        String(err?.message || err),
+      );
+    }
+
+    setError(
+      "Step 2 successful.\n\n" +
+      "Building Algorand payment...",
+    );
+
+    // STEP 3: Build/sign payment
+    let paymentHeader;
+
+    try {
+      paymentHeader =
         await createPayment(
           paymentRequired,
           account,
         );
-
-      const paidResponse =
-        await fetch(
-          TRUST402_URL,
-          {
-            method: "POST",
-            headers: {
-              "content-type":
-                "application/json",
-              "PAYMENT-SIGNATURE":
-                paymentHeader,
-            },
-            body: JSON.stringify({
-              target: "TEST-AGENT",
-            }),
-          },
-        );
-
-      const responseText =
-        await paidResponse.text();
-
-      let data = null;
-
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        data = responseText;
-      }
-
-      if (!paidResponse.ok) {
-        const paymentRequiredError =
-          paidResponse.headers.get(
-            "PAYMENT-REQUIRED",
-          );
-
-        const paymentResponse =
-          paidResponse.headers.get(
-            "PAYMENT-RESPONSE",
-          );
-
-        let errorDetails =
-          responseText || "{}";
-
-        if (paymentRequiredError) {
-          try {
-            const decodedError =
-              decodeBase64Json(
-                paymentRequiredError,
-              );
-
-            errorDetails =
-              JSON.stringify(
-                decodedError,
-                null,
-                2,
-              );
-          } catch {
-            errorDetails =
-              paymentRequiredError;
-          }
-        }
-
-        throw new Error(
-          `HTTP ${paidResponse.status}\n\n` +
-          `x402 error:\n${errorDetails}\n\n` +
-          `PAYMENT-RESPONSE:\n${
-            paymentResponse || "none"
-          }`,
-        );
-      }
-
-            setResult(data);
     } catch (err) {
-      setError(
-        err?.message || String(err),
+      throw new Error(
+        "STEP 3 FAILED: Could not create/sign payment.\n\n" +
+        String(err?.message || err),
       );
-    } finally {
-      setLoading(false);
     }
-  };
+
+    setError(
+      "Step 3 successful.\n\n" +
+      "Sending paid request to Trust402...",
+    );
+
+    // STEP 4: Send paid request
+    let paidResponse;
+
+    try {
+      paidResponse = await fetch(
+        TRUST402_URL,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "PAYMENT-SIGNATURE":
+              paymentHeader,
+          },
+          body: JSON.stringify({
+            target: "TEST-AGENT",
+          }),
+        },
+      );
+    } catch (err) {
+      throw new Error(
+        "STEP 4 FAILED: Paid request could not reach Trust402.\n\n" +
+        String(err?.message || err),
+      );
+    }
+
+    const responseText =
+      await paidResponse.text();
+
+    let data = null;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      data = responseText;
+    }
+
+    if (!paidResponse.ok) {
+      const paymentRequiredError =
+        paidResponse.headers.get(
+          "PAYMENT-REQUIRED",
+        );
+
+      const paymentResponse =
+        paidResponse.headers.get(
+          "PAYMENT-RESPONSE",
+        );
+
+      let errorDetails =
+        responseText || "{}";
+
+      if (paymentRequiredError) {
+        try {
+          const decodedError =
+            decodeBase64Json(
+              paymentRequiredError,
+            );
+
+          errorDetails =
+            JSON.stringify(
+              decodedError,
+              null,
+              2,
+            );
+        } catch {
+          errorDetails =
+            paymentRequiredError;
+        }
+      }
+
+      throw new Error(
+        `STEP 4 RESPONSE: HTTP ${paidResponse.status}\n\n` +
+        `x402 error:\n${errorDetails}\n\n` +
+        `PAYMENT-RESPONSE:\n${
+          paymentResponse || "none"
+        }`,
+      );
+    }
+
+    setResult(data);
+    setError(null);
+  } catch (err) {
+    setError(
+      err?.message || String(err),
+    );
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
 
