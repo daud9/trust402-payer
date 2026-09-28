@@ -230,114 +230,18 @@ function App() {
   setError(null);
 
   try {
-    // STEP 1: Request payment requirements
     setError("Testing POST /v1/trust...");
 
-let firstResponse;
-
-try {
-  firstResponse = await fetch(
-    TRUST402_URL,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=UTF-8",
-      },
-      body: JSON.stringify({
-        target: "TEST-AGENT",
-      }),
-    },
-  );
-} catch (err) {
-  throw new Error(
-    "POST /v1/trust FAILED:\n\n" +
-    String(err?.message || err),
-  );
-}
-
-const rawPaymentHeader =
-  firstResponse.headers.get(
-    "PAYMENT-REQUIRED",
-  );
-
-const allHeaders = {};
-
-firstResponse.headers.forEach(
-  (value, key) => {
-    allHeaders[key] = value;
-  },
-);
-
-const responseBody =
-  await firstResponse.text();
-
-throw new Error(
-  `TRUST402 RESPONSE\n\n` +
-  `HTTP STATUS: ${firstResponse.status}\n\n` +
-  `PAYMENT-REQUIRED: ${
-  rawPaymentHeader
-    ? "PRESENT"
-    : "MISSING"
-}`\n\n` +
-  `HEADERS:\n${JSON.stringify(
-    allHeaders,
-    null,
-    2,
-  )}\n\n` +
-  `BODY:\n${responseBody}`,
-);
-
-    // STEP 2: Read payment requirements
-    let paymentRequired;
+    let firstResponse;
 
     try {
-      paymentRequired =
-        await getPaymentRequired(firstResponse);
-    } catch (err) {
-      throw new Error(
-        "STEP 2 FAILED: Could not read PAYMENT-REQUIRED header.\n\n" +
-        String(err?.message || err),
-      );
-    }
-
-    setError(
-      "Step 2 successful.\n\n" +
-      "Building Algorand payment...",
-    );
-
-    // STEP 3: Build/sign payment
-    let paymentHeader;
-
-    try {
-      paymentHeader =
-        await createPayment(
-          paymentRequired,
-          account,
-        );
-    } catch (err) {
-      throw new Error(
-        "STEP 3 FAILED: Could not create/sign payment.\n\n" +
-        String(err?.message || err),
-      );
-    }
-
-    setError(
-      "Step 3 successful.\n\n" +
-      "Sending paid request to Trust402...",
-    );
-
-    // STEP 4: Send paid request
-    let paidResponse;
-
-    try {
-      paidResponse = await fetch(
+      firstResponse = await fetch(
         TRUST402_URL,
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
-            "PAYMENT-SIGNATURE":
-              paymentHeader,
+            "Content-Type":
+              "text/plain;charset=UTF-8",
           },
           body: JSON.stringify({
             target: "TEST-AGENT",
@@ -346,66 +250,44 @@ throw new Error(
       );
     } catch (err) {
       throw new Error(
-        "STEP 4 FAILED: Paid request could not reach Trust402.\n\n" +
-        String(err?.message || err),
+        "POST /v1/trust FAILED:\n\n" +
+          String(err?.message || err),
       );
     }
 
-    const responseText =
-      await paidResponse.text();
-
-    let data = null;
-
-    try {
-      data = JSON.parse(responseText);
-    } catch {
-      data = responseText;
-    }
-
-    if (!paidResponse.ok) {
-      const paymentRequiredError =
-        paidResponse.headers.get(
-          "PAYMENT-REQUIRED",
-        );
-
-      const paymentResponse =
-        paidResponse.headers.get(
-          "PAYMENT-RESPONSE",
-        );
-
-      let errorDetails =
-        responseText || "{}";
-
-      if (paymentRequiredError) {
-        try {
-          const decodedError =
-            decodeBase64Json(
-              paymentRequiredError,
-            );
-
-          errorDetails =
-            JSON.stringify(
-              decodedError,
-              null,
-              2,
-            );
-        } catch {
-          errorDetails =
-            paymentRequiredError;
-        }
-      }
-
-      throw new Error(
-        `STEP 4 RESPONSE: HTTP ${paidResponse.status}\n\n` +
-        `x402 error:\n${errorDetails}\n\n` +
-        `PAYMENT-RESPONSE:\n${
-          paymentResponse || "none"
-        }`,
+    const rawPaymentHeader =
+      firstResponse.headers.get(
+        "PAYMENT-REQUIRED",
       );
-    }
 
-    setResult(data);
-    setError(null);
+    const allHeaders = {};
+
+    firstResponse.headers.forEach(
+      (value, key) => {
+        allHeaders[key] = value;
+      },
+    );
+
+    const responseBody =
+      await firstResponse.text();
+
+    throw new Error(
+      "TRUST402 RESPONSE\n\n" +
+        `HTTP STATUS: ${firstResponse.status}\n\n` +
+        `PAYMENT-REQUIRED: ${
+          rawPaymentHeader
+            ? "PRESENT"
+            : "MISSING"
+        }\n\n` +
+        "HEADERS:\n" +
+        JSON.stringify(
+          allHeaders,
+          null,
+          2,
+        ) +
+        "\n\nBODY:\n" +
+        responseBody,
+    );
   } catch (err) {
     setError(
       err?.message || String(err),
@@ -414,8 +296,7 @@ throw new Error(
     setLoading(false);
   }
 };
-
-  return (
+   return (
 
     <main>
       <section className="card">
