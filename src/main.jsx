@@ -3,33 +3,60 @@ import { createRoot } from "react-dom/client";
 
 import {
   WalletProvider,
+  WalletManager,
+  NetworkId,
   useWallet,
-  WalletId,
 } from "@txnlab/use-wallet-react";
+
+import { pera } from "@txnlab/use-wallet-pera";
 
 import { x402Client } from "@x402/core/client";
 import { registerExactAvmScheme } from "@x402/avm/exact/client";
 
 import "./style.css";
 
-const walletConfig = {
-  wallets: [WalletId.PERA],
-};
+const manager = new WalletManager({
+  wallets: [pera()],
+  defaultNetwork: NetworkId.MAINNET,
+});
 
 function Payer() {
   const {
     activeAccount,
+    activeAddress,
+    isReady,
     signTransactions,
-    connect,
     disconnect,
+    wallets,
   } = useWallet();
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
+  const connectPera = async () => {
+    try {
+      setError(null);
+
+      const peraWallet = wallets.find(
+        (wallet) => wallet.id === "pera",
+      );
+
+      if (!peraWallet) {
+        throw new Error("Pera Wallet is not available.");
+      }
+
+      await peraWallet.connect();
+    } catch (err) {
+      setError(err?.message || String(err));
+    }
+  };
+
   const pay = useCallback(async () => {
-    if (!activeAccount) return;
+    if (!activeAddress) {
+      setError("Connect Pera Wallet first.");
+      return;
+    }
 
     setLoading(true);
     setResult(null);
@@ -37,7 +64,7 @@ function Payer() {
 
     try {
       const signer = {
-        address: activeAccount.address,
+        address: activeAddress,
 
         signTransactions: async (txns, indexes) => {
           return signTransactions(txns, indexes);
@@ -80,7 +107,20 @@ function Payer() {
     } finally {
       setLoading(false);
     }
-  }, [activeAccount, signTransactions]);
+  }, [activeAddress, signTransactions]);
+
+  if (!isReady) {
+    return (
+      <main>
+        <section className="card">
+          <h1>Trust402</h1>
+          <p className="subtitle">
+            Loading Pera Wallet...
+          </p>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main>
@@ -92,14 +132,16 @@ function Payer() {
         </p>
 
         {!activeAccount ? (
-          <button onClick={() => connect()}>
+          <button onClick={connectPera}>
             Connect Pera Wallet
           </button>
         ) : (
           <>
             <div className="wallet">
               <strong>Connected wallet</strong>
-              <span>{activeAccount.address}</span>
+              <span>
+                {activeAddress}
+              </span>
             </div>
 
             <button
@@ -143,7 +185,7 @@ function Payer() {
 
 function App() {
   return (
-    <WalletProvider value={walletConfig}>
+    <WalletProvider manager={manager}>
       <Payer />
     </WalletProvider>
   );
