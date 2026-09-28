@@ -293,19 +293,26 @@ function App() {
           },
         );
 
-      const data =
-        await paidResponse
-          .json()
-          .catch(() => null);
+      const responseText = await paidResponse.text();
 
-      if (!paidResponse.ok) {
-        throw new Error(
-          data?.message ||
-            data?.error ||
-            `Payment request failed: HTTP ${paidResponse.status}`,
-        );
-      }
+let data = null;
 
+try {
+  data = JSON.parse(responseText);
+} catch {
+  data = responseText;
+}
+
+if (!paidResponse.ok) {
+  const paymentResponse =
+    paidResponse.headers.get("PAYMENT-RESPONSE");
+
+  throw new Error(
+    `HTTP ${paidResponse.status}\n\n` +
+    `Response:\n${JSON.stringify(data, null, 2)}\n\n` +
+    `PAYMENT-RESPONSE:\n${paymentResponse || "none"}`,
+  );
+}
       setResult(data);
     } catch (err) {
       setError(
