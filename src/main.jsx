@@ -267,94 +267,95 @@ function App() {
           firstResponse,
         );
 
-      // Build and sign the Algorand USDC payment.
+            // Build and sign the Algorand USDC payment.
       const paymentHeader =
         await createPayment(
           paymentRequired,
           account,
         );
 
-            try {
-        // ... existing payment code ...
-
-        const paidResponse =
-          await fetch(
-            TRUST402_URL,
-            {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                "PAYMENT-SIGNATURE": paymentHeader,
-              },
-              body: JSON.stringify({
-                target: "TEST-AGENT",
-              }),
+      const paidResponse =
+        await fetch(
+          TRUST402_URL,
+          {
+            method: "POST",
+            headers: {
+              "content-type":
+                "application/json",
+              "PAYMENT-SIGNATURE":
+                paymentHeader,
             },
-          );
-
-        const responseText =
-          await paidResponse.text();
-
-        let data = null;
-
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          data = responseText;
-        }
-
-        if (!paidResponse.ok) {
-          const paymentRequiredError =
-            paidResponse.headers.get(
-              "PAYMENT-REQUIRED",
-            );
-
-          const paymentResponse =
-            paidResponse.headers.get(
-              "PAYMENT-RESPONSE",
-            );
-
-          let errorDetails =
-            responseText || "{}";
-
-          if (paymentRequiredError) {
-            try {
-              const decodedError =
-                decodeBase64Json(
-                  paymentRequiredError,
-                );
-
-              errorDetails =
-                JSON.stringify(
-                  decodedError,
-                  null,
-                  2,
-                );
-            } catch {
-              errorDetails =
-                paymentRequiredError;
-            }
-          }
-
-          throw new Error(
-            `HTTP ${paidResponse.status}\n\n` +
-            `x402 error:\n${errorDetails}\n\n` +
-            `PAYMENT-RESPONSE:\n${
-              paymentResponse || "none"
-            }`,
-          );
-        }
-
-        setResult(data);
-      } catch (err) {
-        setError(
-          err?.message || String(err),
+            body: JSON.stringify({
+              target: "TEST-AGENT",
+            }),
+          },
         );
-      } finally {
-        setLoading(false);
+
+      const responseText =
+        await paidResponse.text();
+
+      let data = null;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        data = responseText;
       }
 
+      if (!paidResponse.ok) {
+        const paymentRequiredError =
+          paidResponse.headers.get(
+            "PAYMENT-REQUIRED",
+          );
+
+        const paymentResponse =
+          paidResponse.headers.get(
+            "PAYMENT-RESPONSE",
+          );
+
+        let errorDetails =
+          responseText || "{}";
+
+        if (paymentRequiredError) {
+          try {
+            const decodedError =
+              decodeBase64Json(
+                paymentRequiredError,
+              );
+
+            errorDetails =
+              JSON.stringify(
+                decodedError,
+                null,
+                2,
+              );
+          } catch {
+            errorDetails =
+              paymentRequiredError;
+          }
+        }
+
+        throw new Error(
+          `HTTP ${paidResponse.status}\n\n` +
+          `x402 error:\n${errorDetails}\n\n` +
+          `PAYMENT-RESPONSE:\n${
+            paymentResponse || "none"
+          }`,
+        );
+      }
+
+            setResult(data);
+    } catch (err) {
+      setError(
+        err?.message || String(err),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
+
     <main>
       <section className="card">
         <h1>Trust402</h1>
