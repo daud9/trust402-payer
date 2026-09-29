@@ -129,18 +129,27 @@ async function createPayment(
    */
 
   if (!feePayer) {
-    const paymentTxn =
-      algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject(
-        {
-          sender: account,
-          receiver:
-            requirements.payTo,
-          amount,
-          assetIndex:
-            BigInt(requirements.asset),
-          suggestedParams,
-        },
-      );
+    const feePayerTxn =
+  algosdk.makePaymentTxnWithSuggestedParamsFromObject(
+    {
+      sender: feePayer,
+
+      receiver: feePayer,
+
+      note:
+        new TextEncoder().encode(
+          "x402-fee-payer",
+        ),
+
+      suggestedParams: {
+        ...suggestedParams,
+
+        fee: minFee * 2,
+
+        flatFee: true,
+      },
+    },
+  );
 
     algosdk.assignGroupID([
       paymentTxn,
