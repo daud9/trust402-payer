@@ -346,13 +346,13 @@ async function createPayment(
    */
 
   const signedPaymentTxn =
-    signedTxns[1];
+  signedTxns[0];
 
-  if (!signedPaymentTxn) {
-    throw new Error(
-      "Pera Wallet did not return the signed USDC payment transaction.",
-    );
-  }
+if (!signedPaymentTxn) {
+  throw new Error(
+    "Pera Wallet did not return the signed USDC payment transaction.",
+  );
+}
 
   /*
    * The fee-payer transaction remains
