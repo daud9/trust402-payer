@@ -210,7 +210,10 @@ async function createPayment(
    * Transaction 1:
    *   User USDC transfer
    *
-   * User signs ONLY transaction 1.
+   * Both transactions are sent to Pera
+   * so Pera can validate the SAME group ID.
+   *
+   * Pera signs ONLY transaction 1.
    */
 
   const minFee =
@@ -219,6 +222,11 @@ async function createPayment(
         suggestedParams.fee ||
         1000,
     );
+
+  /*
+   * TRANSACTION 0
+   * Fee payer transaction
+   */
 
   const feePayerTxn =
     algosdk.makePaymentTxnWithSuggestedParamsFromObject(
@@ -243,6 +251,11 @@ async function createPayment(
         },
       },
     );
+
+  /*
+   * TRANSACTION 1
+   * User USDC payment
+   */
 
   const paymentTxn =
     algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject(
@@ -273,8 +286,10 @@ async function createPayment(
     );
 
   /*
-   * Both transactions must have the
-   * same atomic group ID.
+   * IMPORTANT:
+   *
+   * Create the atomic group BEFORE
+   * sending anything to Pera.
    */
 
   algosdk.assignGroupID([
@@ -283,13 +298,28 @@ async function createPayment(
   ]);
 
   /*
-   * Only the user's payment transaction
-   * is sent to Pera for signing.
+   * IMPORTANT FIX:
+   *
+   * Send BOTH transactions to Pera.
+   *
+   * Transaction 0:
+   *   signers: [] = Pera must NOT sign it.
+   *
+   * Transaction 1:
+   *   signers: [account] = Pera signs it.
+   *
+   * Pera therefore sees the complete group
+   * and can validate the group ID.
    */
 
   const signedTxns =
     await peraWallet.signTransaction([
       [
+        {
+          txn: feePayerTxn,
+          signers: [],
+        },
+
         {
           txn: paymentTxn,
           signers: [account],
@@ -297,24 +327,47 @@ async function createPayment(
       ],
     ]);
 
-  if (!signedTxns?.length) {
+  if (!signedTxns) {
     throw new Error(
-      "Pera Wallet did not return a signed transaction.",
+      "Pera Wallet did not return a signing result.",
     );
   }
 
+  /*
+   * ARC-0025 requires the returned array
+   * to correspond to the original group.
+   *
+   * Index 0:
+   *   null because Pera did not sign
+   *   the fee-payer transaction.
+   *
+   * Index 1:
+   *   signed user payment transaction.
+   */
+
   const signedPaymentTxn =
-    signedTxns[0];
+    signedTxns[1];
+
+  if (!signedPaymentTxn) {
+    throw new Error(
+      "Pera Wallet did not return the signed USDC payment transaction.",
+    );
+  }
 
   /*
-   * The fee-payer transaction stays unsigned.
-   * GoPlausible signs it during settlement.
+   * The fee-payer transaction remains
+   * unsigned. The facilitator signs it
+   * during settlement.
    */
 
   const unsignedFeePayerTxn =
     algosdk.encodeUnsignedTransaction(
       feePayerTxn,
     );
+
+  /*
+   * Build x402 payment payload.
+   */
 
   const paymentPayload = {
     x402Version: 2,
@@ -419,7 +472,7 @@ function App() {
     try {
       /*
        * STEP 1
-       * Ask Trust402 for payment requirements.
+       * Request payment requirements.
        */
 
       setError(
@@ -468,8 +521,7 @@ function App() {
 
       /*
        * STEP 3
-       * Create and sign the
-       * Algorand payment.
+       * Build and sign payment.
        */
 
       setError(
@@ -484,7 +536,7 @@ function App() {
 
       /*
        * STEP 4
-       * Send the signed payment back.
+       * Submit signed payment.
        */
 
       setError(
@@ -523,7 +575,7 @@ function App() {
 
       /*
        * STEP 5
-       * Show Trust402 report.
+       * Display Trust402 report.
        */
 
       let parsedBody;
