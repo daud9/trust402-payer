@@ -568,10 +568,46 @@ function App() {
         await paidResponse.text();
 
       if (!paidResponse.ok) {
-        throw new Error(
-          `Paid request failed: HTTP ${paidResponse.status}\n\n${paidBody}`,
+  const paymentResponse =
+    paidResponse.headers.get(
+      "PAYMENT-RESPONSE",
+    );
+
+  const paymentRequired =
+    paidResponse.headers.get(
+      "PAYMENT-REQUIRED",
+    );
+
+  let diagnostic = "";
+
+  if (paymentResponse) {
+    try {
+      diagnostic +=
+        "\nPAYMENT-RESPONSE:\n" +
+        JSON.stringify(
+          decodeBase64Json(
+            paymentResponse,
+          ),
+          null,
+          2,
         );
-      }
+    } catch {
+      diagnostic +=
+        "\nPAYMENT-RESPONSE:\n" +
+        paymentResponse;
+    }
+  }
+
+  if (paymentRequired) {
+    diagnostic +=
+      "\n\nPAYMENT-REQUIRED:\n" +
+      paymentRequired;
+  }
+
+  throw new Error(
+    `Paid request failed: HTTP ${paidResponse.status}\n\nBODY:\n${paidBody}${diagnostic}`,
+  );
+}
 
       /*
        * STEP 5
