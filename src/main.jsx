@@ -3,8 +3,6 @@ import ReactDOM from "react-dom/client";
 import {
   WalletProvider,
   WalletManager,
-  WalletId,
-  NetworkId,
   useWallet,
 } from "@txnlab/use-wallet-react";
 import { x402Client } from "@x402/core/client";
@@ -15,23 +13,20 @@ import { registerExactAvmScheme } from "@x402/avm/exact/client";
 const TRUST402_URL = "https://trust402.daud9.deno.net/v1/trust";
 const ALGOD_URL = "https://mainnet-api.algonode.cloud";
 
-// Algorand MainNet (CAIP-2) and USDC ASA
 const MAINNET_CAIP2 = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
 const USDC_ASA_ID = "31566704";
 
-// Hard spending cap: 0.05 USDC = 50,000 base units (6 decimals)
+// Spending cap: 0.05 USDC = 50,000 base units (6 decimals)
 const MAX_AMOUNT = 50000n;
 const REQUEST_TIMEOUT_MS = 60000;
 
 const walletManager = new WalletManager({
-  wallets: [WalletId.PERA],
-  defaultNetwork: NetworkId.MAINNET,
+  wallets: [{ id: "pera" }],
+  defaultNetwork: "mainnet",
 });
 
 /* ========================= HELPERS ========================= */
 
-// Only allow: Algorand MainNet + USDC + amount <= cap.
-// Stops a bad/compromised endpoint from asking for more than $0.05.
 const safePaymentPolicy = (_version, requirements) =>
   requirements.filter((r) => {
     try {
@@ -47,7 +42,6 @@ const safePaymentPolicy = (_version, requirements) =>
     }
   });
 
-// Settlement receipt is returned base64-JSON in a response header.
 function readReceipt(response) {
   const raw =
     response.headers.get("PAYMENT-RESPONSE") ||
@@ -86,7 +80,7 @@ function Trust402App() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const pera = wallets?.find((w) => w.id === WalletId.PERA);
+  const pera = wallets?.find((w) => w.id === "pera");
 
   const signer = useMemo(() => {
     if (!activeAccount) return null;
@@ -142,10 +136,6 @@ function Trust402App() {
         policies: [safePaymentPolicy],
       });
 
-      // Handles: request -> 402 -> build txn group -> Pera signs -> retry.
-      // If your installed SDK has no client.fetch, use:
-      //   import { wrapFetchWithPayment } from "@x402/fetch";
-      //   const pay = wrapFetchWithPayment(fetch, client);
       const response = await client.fetch(TRUST402_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
