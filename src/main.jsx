@@ -63,6 +63,15 @@ function App() {
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(false);
   const [raw, setRaw] = useState(false);
+  const [hist, setHist] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("t402_hist") || "[]"); } catch { return []; }
+  });
+  const saveHist = (t, s, r) => {
+    const prev = hist.find((h) => h.t === t);
+    const next = [{ t, s, r, d: prev ? s - prev.s : null, at: Date.now() }, ...hist.filter((h) => h.t !== t)].slice(0, 8);
+    setHist(next);
+    try { localStorage.setItem("t402_hist", JSON.stringify(next)); } catch {}
+  };
   const wallet = useRef(null);
 
   const say = (m, c = "") => setLog((l) => [...l.slice(-7), { m, c }]);
@@ -156,6 +165,7 @@ function App() {
       const rc = res.headers.get("PAYMENT-RESPONSE");
       if (rc) { try { setTx(JSON.parse(atob(rc)).transaction || ""); } catch {} }
       setResult(data);
+      if (data.trust_score != null) saveHist(String(data.target || target), Number(data.trust_score), data.risk_level);
       say("Payment settled. Trust report received.", "ok");
     } catch (e) {
       const m = e?.message || String(e);
@@ -243,10 +253,36 @@ function App() {
                 <div className="row"><span>Time</span><b>{result.timestamp ?? "n/a"}</b></div>
               </div>
               {result.warnings?.length > 0 && <div className="err" style={{ marginTop: 8 }}>{result.warnings.map(String).join(" · ")}</div>}
+              {result.checks?.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div className="sub" style={{ marginBottom: 4 }}>Checks run · {result.target_type}</div>
+                  {result.checks.map((c, i) => (
+                    <div key={i} className="row">
+                      <span>{c.status === "pass" ? "✅" : c.status === "fail" ? "⛔" : c.status === "warn" ? "⚠️" : "ℹ️"} {c.name}</span>
+                      <b style={{ fontWeight: 400, fontSize: 12, color: "#b9c6e0" }}>{c.detail}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           ) : <pre>{JSON.stringify(result, null, 2)}</pre>}
           <button className="sec" onClick={() => setRaw(!raw)}>{raw ? "Hide" : "Show"} raw JSON</button>
           {raw && <pre style={{ marginTop: 10 }}>{JSON.stringify(result, null, 2)}</pre>}
+        </div>
+      )}
+
+      {hist.length > 0 && (
+        <div className="card">
+          <h3>Your recent scans</h3>
+          {hist.map((h) => (
+            <div key={h.t} className="row" style={{ cursor: "pointer" }} onClick={() => setTarget(h.t)}>
+              <span>{short(h.t)}</span>
+              <b>
+                {h.s}/100 {h.d ? <em style={{ color: h.d > 0 ? "#19d3a2" : "#ff8a8a", fontStyle: "normal" }}>{h.d > 0 ? "▲" : "▼"}{Math.abs(h.d)}</em> : null}
+              </b>
+            </div>
+          ))}
+          <div className="sub" style={{ marginTop: 6 }}>Tap one to re-scan and track score changes.</div>
         </div>
       )}
 
