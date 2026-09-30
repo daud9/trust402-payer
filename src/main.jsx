@@ -1,31 +1,43 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
+
 import ReactDOM from "react-dom/client";
 
 import {
   WalletProvider,
+  WalletManager,
   useWallet,
-  WalletId,
-  NetworkId,
 } from "@txnlab/use-wallet-react";
 
 import { x402Client } from "@x402/core/client";
-import { registerExactAvmScheme } from "@x402/avm/exact/client";
+
+import {
+  registerExactAvmScheme,
+} from "@x402/avm/exact/client";
 
 /* =========================
-   TRUST402 CONFIG
+   TRUST402
 ========================= */
 
 const TRUST402_URL =
   "https://trust402.daud9.deno.net/v1/trust";
 
 /* =========================
-   WALLET CONFIG
+   WALLET MANAGER
 ========================= */
 
-const walletConfig = {
-  wallets: [WalletId.PERA],
-  defaultNetwork: NetworkId.MAINNET,
-};
+const walletManager =
+  new WalletManager({
+    wallets: [
+      {
+        id: "pera",
+      },
+    ],
+    defaultNetwork: "mainnet",
+  });
 
 /* =========================
    MAIN APP
@@ -51,17 +63,10 @@ function Trust402App() {
   const [loading, setLoading] =
     useState(false);
 
-  /*
-   * Official x402 Algorand signer adapter.
-   *
-   * ExactAvmScheme handles:
-   * - 402 response
-   * - payment transaction construction
-   * - transaction grouping
-   * - paymentIndex
-   * - wallet signing
-   * - payment retry
-   */
+  /* =========================
+     X402 SIGNER
+  ========================= */
+
   const signer = useMemo(() => {
     if (!activeAccount) {
       return null;
@@ -85,6 +90,10 @@ function Trust402App() {
     signTransactions,
   ]);
 
+  /* =========================
+     TRUST CHECK
+  ========================= */
+
   const runTrustCheck =
     useCallback(async () => {
       if (!signer) {
@@ -103,44 +112,61 @@ function Trust402App() {
 
       setLoading(true);
       setResult(null);
+
       setStatus(
         "Requesting Trust402 assessment...",
       );
 
       try {
         /*
-         * Create official x402 client.
+         * Create x402 client.
          */
-        const client = new x402Client({
-          schemes: [],
-        });
+
+        const client =
+          new x402Client({
+            schemes: [],
+          });
 
         /*
-         * Register Algorand Exact payment scheme.
+         * Register official
+         * Algorand Exact scheme.
          */
-        registerExactAvmScheme(client, {
-          signer,
-        });
+
+        registerExactAvmScheme(
+          client,
+          {
+            signer,
+
+            algodConfig: {
+              algodUrl:
+                "https://mainnet-api.algonode.cloud",
+            },
+          },
+        );
 
         /*
-         * First request receives HTTP 402.
+         * x402 handles:
          *
-         * x402Client automatically:
-         * 1. Reads PAYMENT-REQUIRED
-         * 2. Builds the Algorand payment group
-         * 3. Asks Pera to sign the required transaction(s)
-         * 4. Creates the payment payload
-         * 5. Retries the request
+         * 1. Initial request
+         * 2. HTTP 402
+         * 3. PAYMENT-REQUIRED
+         * 4. Algorand transaction creation
+         * 5. Wallet signing
+         * 6. Payment payload
+         * 7. Retry
          */
+
         const response =
           await client.fetch(
             TRUST402_URL,
             {
               method: "POST",
+
               headers: {
                 "Content-Type":
                   "application/json",
               },
+
               body: JSON.stringify({
                 target:
                   target.trim(),
@@ -194,25 +220,36 @@ function Trust402App() {
       target,
     ]);
 
+  /* =========================
+     UI
+  ========================= */
+
   return (
     <div className="app">
       <div className="card">
+
         <div className="brand">
+
           <div className="logo">
             T
           </div>
 
           <div>
-            <h1>Trust402</h1>
+            <h1>
+              Trust402
+            </h1>
 
             <p>
-              Paid trust & risk assessment
-              for autonomous agents
+              Paid trust & risk
+              assessment for
+              autonomous agents
             </p>
           </div>
+
         </div>
 
         <div className="network">
+
           <span>
             Algorand MainNet
           </span>
@@ -220,31 +257,40 @@ function Trust402App() {
           <strong>
             $0.05 USDC
           </strong>
+
         </div>
 
         {!activeAccount ? (
+
           <button
             className="primary"
             onClick={connect}
           >
             Connect Pera Wallet
           </button>
+
         ) : (
+
           <>
             <div className="wallet">
+
               <span>
                 Connected
               </span>
 
               <code>
-                {activeAccount.address.slice(
-                  0,
-                  6,
-                )}
+                {
+                  activeAccount.address.slice(
+                    0,
+                    6,
+                  )
+                }
                 ...
-                {activeAccount.address.slice(
-                  -6,
-                )}
+                {
+                  activeAccount.address.slice(
+                    -6,
+                  )
+                }
               </code>
 
               <button
@@ -253,6 +299,7 @@ function Trust402App() {
               >
                 Disconnect
               </button>
+
             </div>
 
             <label>
@@ -262,14 +309,18 @@ function Trust402App() {
             <input
               value={target}
               onChange={(e) =>
-                setTarget(e.target.value)
+                setTarget(
+                  e.target.value,
+                )
               }
               placeholder="Agent, wallet, API or website"
             />
 
             <button
               className="primary"
-              onClick={runTrustCheck}
+              onClick={
+                runTrustCheck
+              }
               disabled={loading}
             >
               {loading
@@ -277,6 +328,7 @@ function Trust402App() {
                 : "Get Trust Report — $0.05"}
             </button>
           </>
+
         )}
 
         {status && (
@@ -287,11 +339,13 @@ function Trust402App() {
 
         {result && (
           <div className="result">
+
             <h2>
               Trust Report
             </h2>
 
             <div className="score">
+
               <strong>
                 {result.trust_score}
               </strong>
@@ -299,6 +353,7 @@ function Trust402App() {
               <span>
                 / 100
               </span>
+
             </div>
 
             <div className="risk">
@@ -309,6 +364,7 @@ function Trust402App() {
             </div>
 
             <div className="details">
+
               <div>
                 <span>
                   Identity
@@ -357,16 +413,20 @@ function Trust402App() {
                   {result.confidence}
                 </strong>
               </div>
+
             </div>
 
             {result.warnings
               ?.length > 0 && (
+
               <div>
+
                 <h3>
                   Warnings
                 </h3>
 
                 <ul>
+
                   {result.warnings.map(
                     (warning, i) => (
                       <li key={i}>
@@ -376,28 +436,35 @@ function Trust402App() {
                       </li>
                     ),
                   )}
+
                 </ul>
+
               </div>
+
             )}
+
           </div>
         )}
+
       </div>
     </div>
   );
 }
 
 /* =========================
-   ROOT
+   APP ROOT
 ========================= */
 
 ReactDOM.createRoot(
   document.getElementById("root"),
 ).render(
   <React.StrictMode>
+
     <WalletProvider
-      value={walletConfig}
+      manager={walletManager}
     >
       <Trust402App />
     </WalletProvider>
+
   </React.StrictMode>,
 );
