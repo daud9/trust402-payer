@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
+import Landing, { Footer } from "./Landing.jsx";
 
 const ENDPOINT = "https://trust402.daud9.deno.net/v1/trust";
 const NET_PREFIX = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k";
@@ -161,7 +162,12 @@ function App() {
       const text = await res.text();
       let data;
       try { data = JSON.parse(text); } catch { data = { raw: text }; }
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${data?.error || text.slice(0, 120)}`);
+      if (!res.ok) {
+        let why = data?.error || text.slice(0, 120);
+        const ph = res.headers.get("PAYMENT-REQUIRED");
+        if (ph) { try { why = JSON.parse(atob(ph)).error || why; } catch {} }
+        throw new Error(`HTTP ${res.status}: ${String(why).slice(0, 220)}`);
+      }
       const rc = res.headers.get("PAYMENT-RESPONSE");
       if (rc) { try { setTx(JSON.parse(atob(rc)).transaction || ""); } catch {} }
       setResult(data);
@@ -296,4 +302,10 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <>
+    <Landing />
+    <div id="try"><App /></div>
+    <Footer />
+  </>,
+);
