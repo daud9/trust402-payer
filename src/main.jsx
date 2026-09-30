@@ -2,12 +2,26 @@ import React, { useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import Landing, { Footer } from "./Landing.jsx";
 
-const ENDPOINT = "https://trust402.daud9.deno.net/v1/trust";
+const BASE = "https://trust402.daud9.deno.net";
+const TIERS = [
+  { id: "basic", label: "Basic", price: "$0.05", path: "/v1/trust", blurb: "Core wallet / web checks" },
+  { id: "advanced", label: "Advanced", price: "$0.20", path: "/v1/trust/advanced", blurb: "+ flow, counterparties, velocity, holdings, domain expiry" },
+];
 const NET_PREFIX = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k";
 const USDC = "31566704";
-const MAX = 50000n;
+const MAX = 250000n; // up to 0.25 USDC per call
 const PROOF_TX = "XANHY3LI5NUTB37EWXTLRNCPU4STI4XSXSIV2C3NOCQEZOFG4GZA";
-const EXAMPLES = ["TEST-AGENT", "https://example.com", "VO66SCWROBJOXOCWQ2IB3YAM3DIFP4CVKDEB73S2BNLISMVFT4VEQTEPHM"];
+const EXAMPLES = ["VO66SCWROBJOXOCWQ2IB3YAM3DIFP4CVKDEB73S2BNLISMVFT4VEQTEPHM", "https://example.com", "https://trust402.daud9.deno.net/v1/trust"];
+const kindOf = (t = "") => {
+  t = t.trim();
+  if (/^[A-Z2-7]{58}$/.test(t)) return "Algorand wallet";
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.algo$/i.test(t)) return "NFD name";
+  try {
+    const u = new URL(/^https?:\/\//i.test(t) ? t : "https://" + t);
+    if (u.hostname.includes(".") && !/^[\d.]+$/.test(u.hostname)) return "Website / API";
+  } catch {}
+  return null;
+};
 
 const css = `
 *{box-sizing:border-box}body{margin:0;background:#070b14;color:#e6ebf5;font-family:system-ui,sans-serif}
@@ -56,7 +70,7 @@ const policy = (_v, reqs) =>
   });
 
 function App() {
-  const [target, setTarget] = useState("TEST-AGENT");
+  const [target, setTarget] = useState(EXAMPLES[0]);
   const [addr, setAddr] = useState("");
   const [terms, setTerms] = useState(null);
   const [result, setResult] = useState(null);
@@ -74,6 +88,9 @@ function App() {
     try { localStorage.setItem("t402_hist", JSON.stringify(next)); } catch {}
   };
   const wallet = useRef(null);
+  const [tier, setTier] = useState("basic");
+  const T = TIERS.find((x) => x.id === tier);
+  const endpoint = BASE + T.path;
 
   const say = (m, c = "") => setLog((l) => [...l.slice(-7), { m, c }]);
   const step = result ? 4 : busy ? 3 : addr ? 2 : terms ? 1 : 0;
@@ -87,7 +104,7 @@ function App() {
     setBusy(true);
     say("Requesting payment terms (no payment yet)…");
     try {
-      const r = await fetch(ENDPOINT, body());
+      const r = await fetch(endpoint, body());
       const h = r.headers.get("PAYMENT-REQUIRED");
       if (r.status !== 402 || !h) throw new Error("Endpoint did not return a 402 challenge.");
       const pr = JSON.parse(atob(h));
@@ -125,6 +142,7 @@ function App() {
 
   async function pay() {
     if (!wallet.current || !addr) return say("Connect your wallet first.", "err");
+    if (!kindOf(target)) return say("Enter an Algorand address, .algo name or website URL. Nothing was charged.", "err");
     setBusy(true);
     setResult(null);
     setTx("");
@@ -144,9 +162,9 @@ function App() {
       const opts = body();
       if (typeof client.fetch === "function") {
         say("Approve the $0.05 USDC payment in Pera…");
-        res = await client.fetch(ENDPOINT, opts);
+        res = await client.fetch(endpoint, opts);
       } else {
-        const first = await fetch(ENDPOINT, opts);
+        const first = await fetch(endpoint, opts);
         if (first.status !== 402) res = first;
         else {
           const http = new x402HTTPClient(client);
@@ -156,7 +174,7 @@ function App() {
           say("Approve the $0.05 USDC payment in Pera…");
           const payload = await http.createPaymentPayload(req);
           say("Signed. Settling on Algorand MainNet…");
-          res = await fetch(ENDPOINT, { ...opts, headers: { ...opts.headers, ...http.encodePaymentSignatureHeader(payload) } });
+          res = await fetch(endpoint, { ...opts, headers: { ...opts.headers, ...http.encodePaymentSignatureHeader(payload) } });
         }
       }
       const text = await res.text();
@@ -207,6 +225,17 @@ function App() {
       <div className="card">
         <h3>1 · Target to assess</h3>
         <input value={target} maxLength={200} onChange={(e) => setTarget(e.target.value)} placeholder="Agent, wallet, API or website" />
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          {TIERS.map((x) => (
+            <div key={x.id} onClick={() => setTier(x.id)} style={{ flex: 1, padding: 10, borderRadius: 12, cursor: "pointer", border: "1px solid " + (tier === x.id ? "#19d3a2" : "#223559"), background: tier === x.id ? "#0b2a24" : "#0a1120" }}>
+              <b>{x.label} · {x.price}</b>
+              <div className="sub" style={{ fontSize: 11, marginTop: 2 }}>{x.blurb}</div>
+            </div>
+          ))}
+        </div>
+        <div className="sub" style={{ marginTop: 8 }}>
+          {kindOf(target) ? <span className="ok">✓ Detected: {kindOf(target)}</span> : <span className="err">⚠ Needs an Algorand address, .algo name or website URL</span>}
+        </div>
         <div className="chips">
           {EXAMPLES.map((x) => <span key={x} className="chip" onClick={() => setTarget(x)}>{x}</span>)}
         </div>
@@ -231,7 +260,7 @@ function App() {
         ) : (
           <>
             <div className="row"><span>Connected</span><b>{short(addr)}</b></div>
-            <button className="pri" disabled={busy} onClick={pay}>{busy ? "Processing…" : "Pay $0.05 & get Trust Report"}</button>
+            <button className="pri" disabled={busy || !kindOf(target)} onClick={pay}>{busy ? "Processing…" : `Pay ${T.price} · ${T.label} report`}</button>
             <button className="sec" disabled={busy} onClick={disconnect}>Disconnect</button>
           </>
         )}
