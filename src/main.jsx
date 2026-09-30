@@ -1,863 +1,403 @@
-import React, { useEffect, useState } from "react";
-import { createRoot } from "react-dom/client";
-import { PeraWalletConnect } from "@perawallet/connect";
-import algosdk from "algosdk";
+import React, { useCallback, useMemo, useState } from "react";
+import ReactDOM from "react-dom/client";
 
-import "./style.css";
+import {
+  WalletProvider,
+  useWallet,
+  WalletId,
+  NetworkId,
+} from "@txnlab/use-wallet-react";
 
-const peraWallet = new PeraWalletConnect({
-  chainId: 416001,
-});
+import { x402Client } from "@x402/core/client";
+import { registerExactAvmScheme } from "@x402/avm/exact/client";
+
+/* =========================
+   TRUST402 CONFIG
+========================= */
 
 const TRUST402_URL =
   "https://trust402.daud9.deno.net/v1/trust";
 
-const ALGOD_URL =
-  "https://mainnet-api.algonode.cloud";
-
-const USDC_ASSET_ID = "31566704";
-
-/*
- * --------------------------------------------------
- * BASE64 HELPERS
- * --------------------------------------------------
- */
-
-function encodeBase64Json(value) {
-  const bytes = new TextEncoder().encode(
-    JSON.stringify(value),
-  );
-
-  let binary = "";
-  const chunkSize = 0x8000;
-
-  for (
-    let i = 0;
-    i < bytes.length;
-    i += chunkSize
-  ) {
-    binary += String.fromCharCode(
-      ...bytes.subarray(i, i + chunkSize),
-    );
-  }
-
-  return btoa(binary);
-}
-
-function decodeBase64Json(value) {
-  const binary = atob(value);
-
-  const bytes = Uint8Array.from(
-    binary,
-    (char) => char.charCodeAt(0),
-  );
-
-  return JSON.parse(
-    new TextDecoder().decode(bytes),
-  );
-}
-
-function bytesToBase64(bytes) {
-  let binary = "";
-  const chunkSize = 0x8000;
-
-  for (
-    let i = 0;
-    i < bytes.length;
-    i += chunkSize
-  ) {
-    binary += String.fromCharCode(
-      ...bytes.subarray(i, i + chunkSize),
-    );
-  }
-
-  return btoa(binary);
-}
-
-/*
- * --------------------------------------------------
- * PAYMENT REQUIRED
- * --------------------------------------------------
- */
-
-async function getPaymentRequired(response) {
-  const header =
-    response.headers.get(
-      "PAYMENT-REQUIRED",
-    );
-
-  if (!header) {
-    throw new Error(
-      "Trust402 did not return a PAYMENT-REQUIRED header.",
-    );
-  }
-
-  return decodeBase64Json(header);
-}
-
-/*
- * --------------------------------------------------
- * CREATE X402 PAYMENT
- * --------------------------------------------------
- */
-
-async function createPayment(
-  paymentRequired,
-  account,
-) {
-  /*
-   * Find Algorand exact payment requirement.
-   */
-
-  const requirements =
-    paymentRequired.accepts?.find(
-      (item) =>
-        item.scheme === "exact" &&
-        item.network?.startsWith(
-          "algorand:",
-        ),
-    );
-
-  if (!requirements) {
-    throw new Error(
-      "No compatible Algorand exact payment requirement was returned.",
-    );
-  }
-
-  /*
-   * Validate USDC.
-   */
-
-  if (
-    String(requirements.asset) !==
-    USDC_ASSET_ID
-  ) {
-    throw new Error(
-      `Unexpected payment asset: ${requirements.asset}`,
-    );
-  }
-
-  /*
-   * Payment amount is in atomic USDC units.
-   * 0.05 USDC = 50000.
-   */
-
-  const amount = BigInt(
-    requirements.amount,
-  );
-
-  /*
-   * Algod connection.
-   */
-
-  const algod =
-    new algosdk.Algodv2(
-      "",
-      ALGOD_URL,
-      "",
-    );
-
-  const suggestedParams =
-    await algod
-      .getTransactionParams()
-      .do();
-
-  /*
-   * Facilitator fee-payer address.
-   */
-
-  const feePayer =
-    requirements.extra?.feePayer;
-
-  /*
-   * ------------------------------------------------
-   * SIMPLE PAYMENT
-   * ------------------------------------------------
-   *
-   * Used only if the facilitator does
-   * not provide a feePayer.
-   */
-
-  if (!feePayer) {
-    const paymentTxn =
-      algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject(
-        {
-          sender: account,
-
-          receiver:
-            requirements.payTo,
-
-          amount,
-
-          assetIndex:
-            BigInt(
-              requirements.asset,
-            ),
-
-          suggestedParams,
-        },
-      );
-
-    /*
-     * Single transaction still needs
-     * its own group ID.
-     */
-
-    algosdk.assignGroupID([
-      paymentTxn,
-    ]);
-
-    /*
-     * Pera signs the payment.
-     */
-
-    const signedTxns =
-      await peraWallet.signTransaction([
-        [
-          {
-            txn: paymentTxn,
-            signers: [account],
-          },
-        ],
-      ]);
-
-    if (!signedTxns?.length) {
-      throw new Error(
-        "Pera Wallet did not return a signed transaction.",
-      );
-    }
-
-    const signedTxn =
-      signedTxns[0];
-
-    const paymentPayload = {
-      x402Version: 2,
-
-      scheme:
-        requirements.scheme,
-
-      network:
-        requirements.network,
-
-      resource:
-        paymentRequired.resource,
-
-      accepted:
-        requirements,
-
-      extensions:
-        paymentRequired.extensions ||
-        {},
-
-      payload: {
-        paymentGroup: [
-          bytesToBase64(
-            signedTxn,
-          ),
-        ],
-
-        paymentIndex: 0,
-      },
-    };
-
-    return encodeBase64Json(
-      paymentPayload,
-    );
-  }
-
-  /*
-   * ------------------------------------------------
-   * FEE-ABSTRACTED PAYMENT
-   * ------------------------------------------------
-   *
-   * Transaction 0:
-   * Facilitator fee-payer transaction.
-   *
-   * Transaction 1:
-   * User USDC transfer.
-   *
-   * The current x402 Algorand specification
-   * requires the fee-payer transaction to omit
-   * the "amt" field completely.
-   */
-
-  const minFee =
-    Number(
-      suggestedParams.minFee ||
-        suggestedParams.fee ||
-        1000,
-    );
-
-  /*
-   * -----------------------------------------------
-   * TRANSACTION 0
-   * FACILITATOR FEE-PAYER
-   * -----------------------------------------------
-   *
-   * IMPORTANT:
-   *
-   * There is intentionally NO:
-   *
-   *     amount: 0
-   *
-   * here.
-   *
-   * The Algorand x402 verifier requires the
-   * amount field to be omitted.
-   */
-
-  const feePayerTxn =
-    algosdk.makePaymentTxnWithSuggestedParamsFromObject(
-      {
-        sender: feePayer,
-
-        receiver: feePayer,
-
-        note:
-          new TextEncoder().encode(
-            "x402-fee-payer",
-          ),
-
-        suggestedParams: {
-          ...suggestedParams,
-
-          fee: minFee * 2,
-
-          flatFee: true,
-        },
-      },
-    );
-
-  /*
-   * -----------------------------------------------
-   * TRANSACTION 1
-   * USER USDC PAYMENT
-   * -----------------------------------------------
-   */
-
-  const paymentTxn =
-    algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject(
-      {
-        sender: account,
-
-        receiver:
-          requirements.payTo,
-
-        amount,
-
-        assetIndex:
-          BigInt(
-            requirements.asset,
-          ),
-
-        note:
-          new TextEncoder().encode(
-            "x402-payment-v2",
-          ),
-
-        suggestedParams: {
-          ...suggestedParams,
-
-          fee: 0,
-
-          flatFee: true,
-        },
-      },
-    );
-
-  /*
-   * -----------------------------------------------
-   * ATOMIC GROUP
-   * -----------------------------------------------
-   *
-   * Transaction 0 = fee payer
-   * Transaction 1 = USDC payment
-   */
-
-  algosdk.assignGroupID([
-    feePayerTxn,
-    paymentTxn,
-  ]);
-
-  /*
-   * -----------------------------------------------
-   * PERA SIGNING
-   * -----------------------------------------------
-   *
-   * Pera receives BOTH transactions so that
-   * it can validate the atomic group ID.
-   *
-   * Pera signs ONLY transaction 1.
-   */
-
-  const signedTxns =
-    await peraWallet.signTransaction([
-      [
-        {
-          txn: feePayerTxn,
-          signers: [],
-        },
-
-        {
-          txn: paymentTxn,
-          signers: [account],
-        },
-      ],
-    ]);
-
-  if (!signedTxns) {
-    throw new Error(
-      "Pera Wallet did not return a signing result.",
-    );
-  }
-
-  /*
-   * Pera returns the signed transaction
-   * that it actually signed.
-   *
-   * Because transaction 0 has signers: [],
-   * the signed USDC transaction is index 0
-   * in Pera's returned signed transaction array.
-   */
-
-  const signedPaymentTxn =
-    signedTxns[0];
-
-  if (!signedPaymentTxn) {
-    throw new Error(
-      "Pera Wallet did not return the signed USDC payment transaction.",
-    );
-  }
-
-  /*
-   * -----------------------------------------------
-   * ENCODE FEE-PAYER TRANSACTION
-   * -----------------------------------------------
-   *
-   * It remains unsigned.
-   *
-   * GoPlausible signs this transaction during
-   * facilitator verification/settlement.
-   */
-
-  const unsignedFeePayerTxn =
-    algosdk.encodeUnsignedTransaction(
-      feePayerTxn,
-    );
-
-  /*
-   * -----------------------------------------------
-   * X402 PAYMENT PAYLOAD
-   * -----------------------------------------------
-   */
-
-  const paymentPayload = {
-    x402Version: 2,
-
-    scheme:
-      requirements.scheme,
-
-    network:
-      requirements.network,
-
-    resource:
-      paymentRequired.resource,
-
-    accepted:
-      requirements,
-
-    extensions:
-      paymentRequired.extensions ||
-      {},
-
-    payload: {
-      paymentGroup: [
-        bytesToBase64(
-          unsignedFeePayerTxn,
-        ),
-
-        bytesToBase64(
-          signedPaymentTxn,
-        ),
-      ],
-
-      paymentIndex: 1,
-    },
-  };
-
-  /*
-   * Debug information in browser console.
-   */
-
-  console.log(
-    "TRUST402 PAYMENT PAYLOAD:",
-    paymentPayload,
-  );
-
-  return encodeBase64Json(
-    paymentPayload,
-  );
-}
-
-/*
- * --------------------------------------------------
- * APP
- * --------------------------------------------------
- */
-
-function App() {
-  const [account, setAccount] =
-    useState(null);
-
-  const [loading, setLoading] =
-    useState(false);
+/* =========================
+   WALLET CONFIG
+========================= */
+
+const walletConfig = {
+  wallets: [WalletId.PERA],
+  defaultNetwork: NetworkId.MAINNET,
+};
+
+/* =========================
+   MAIN APP
+========================= */
+
+function Trust402App() {
+  const {
+    activeAccount,
+    signTransactions,
+    connect,
+    disconnect,
+  } = useWallet();
+
+  const [target, setTarget] =
+    useState("TEST-AGENT");
 
   const [result, setResult] =
     useState(null);
 
-  const [error, setError] =
-    useState(null);
+  const [status, setStatus] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
 
   /*
-   * Reconnect Pera session.
+   * Official x402 Algorand signer adapter.
+   *
+   * ExactAvmScheme handles:
+   * - 402 response
+   * - payment transaction construction
+   * - transaction grouping
+   * - paymentIndex
+   * - wallet signing
+   * - payment retry
    */
-
-  useEffect(() => {
-    peraWallet
-      .reconnectSession()
-      .then((accounts) => {
-        if (accounts?.length) {
-          setAccount(accounts[0]);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  /*
-   * Connect wallet.
-   */
-
-  const connectWallet = async () => {
-    try {
-      setError(null);
-
-      const accounts =
-        await peraWallet.connect();
-
-      if (!accounts?.length) {
-        throw new Error(
-          "No Pera account was returned.",
-        );
-      }
-
-      setAccount(accounts[0]);
-    } catch (err) {
-      setError(
-        err?.message ||
-          String(err),
-      );
-    }
-  };
-
-  /*
-   * Disconnect wallet.
-   */
-
-  const disconnectWallet = () => {
-    peraWallet.disconnect();
-
-    setAccount(null);
-  };
-
-  /*
-   * ------------------------------------------------
-   * PAY
-   * ------------------------------------------------
-   */
-
-  const pay = async () => {
-    if (!account) {
-      setError(
-        "Connect Pera Wallet first.",
-      );
-
-      return;
+  const signer = useMemo(() => {
+    if (!activeAccount) {
+      return null;
     }
 
-    setLoading(true);
-    setResult(null);
-    setError(null);
+    return {
+      address: activeAccount.address,
 
-    try {
-      /*
-       * STEP 1
-       * Request payment requirements.
-       */
-
-      setError(
-        "Getting payment requirements...",
-      );
-
-      const firstResponse =
-        await fetch(
-          TRUST402_URL,
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "text/plain;charset=UTF-8",
-            },
-
-            body: JSON.stringify({
-              target:
-                "TEST-AGENT",
-            }),
-          },
+      signTransactions: async (
+        txns,
+        indexesToSign,
+      ) => {
+        return signTransactions(
+          txns,
+          indexesToSign,
         );
+      },
+    };
+  }, [
+    activeAccount,
+    signTransactions,
+  ]);
 
-      if (
-        firstResponse.status !==
-        402
-      ) {
-        const body =
-          await firstResponse.text();
-
-        throw new Error(
-          `Expected HTTP 402, got ${firstResponse.status}\n\n${body}`,
+  const runTrustCheck =
+    useCallback(async () => {
+      if (!signer) {
+        setStatus(
+          "Connect your Pera wallet first.",
         );
+        return;
       }
 
-      /*
-       * STEP 2
-       * Decode PAYMENT-REQUIRED.
-       */
-
-      const paymentRequired =
-        await getPaymentRequired(
-          firstResponse,
+      if (!target.trim()) {
+        setStatus(
+          "Enter a target to assess.",
         );
-
-      console.log(
-        "TRUST402 PAYMENT-REQUIRED:",
-        paymentRequired,
-      );
-
-      /*
-       * STEP 3
-       * Build and sign payment.
-       */
-
-      setError(
-        "Payment required. Opening Pera Wallet...",
-      );
-
-      const paymentSignature =
-        await createPayment(
-          paymentRequired,
-          account,
-        );
-
-      /*
-       * STEP 4
-       * Submit signed payment.
-       */
-
-      setError(
-        "Payment signed. Submitting payment...",
-      );
-
-      const paidResponse =
-        await fetch(
-          TRUST402_URL,
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "text/plain;charset=UTF-8",
-
-              "PAYMENT-SIGNATURE":
-                paymentSignature,
-            },
-
-            body: JSON.stringify({
-              target:
-                "TEST-AGENT",
-            }),
-          },
-        );
-
-      const paidBody =
-        await paidResponse.text();
-
-      /*
-       * --------------------------------------------
-       * PAYMENT FAILURE
-       * --------------------------------------------
-       */
-
-      if (!paidResponse.ok) {
-        const paymentResponse =
-          paidResponse.headers.get(
-            "PAYMENT-RESPONSE",
-          );
-
-        let diagnostic =
-          "";
-
-        if (paymentResponse) {
-          try {
-            diagnostic =
-              "\n\nPAYMENT-RESPONSE:\n" +
-              JSON.stringify(
-                decodeBase64Json(
-                  paymentResponse,
-                ),
-                null,
-                2,
-              );
-          } catch {
-            diagnostic =
-              "\n\nPAYMENT-RESPONSE:\n" +
-              paymentResponse;
-          }
-        }
-
-        throw new Error(
-          `Paid request failed: HTTP ${paidResponse.status}\n\nBODY:\n${paidBody}${diagnostic}`,
-        );
+        return;
       }
 
-      /*
-       * STEP 5
-       * Parse Trust402 report.
-       */
-
-      let parsedBody;
+      setLoading(true);
+      setResult(null);
+      setStatus(
+        "Requesting Trust402 assessment...",
+      );
 
       try {
-        parsedBody =
-          JSON.parse(
-            paidBody,
+        /*
+         * Create official x402 client.
+         */
+        const client = new x402Client({
+          schemes: [],
+        });
+
+        /*
+         * Register Algorand Exact payment scheme.
+         */
+        registerExactAvmScheme(client, {
+          signer,
+        });
+
+        /*
+         * First request receives HTTP 402.
+         *
+         * x402Client automatically:
+         * 1. Reads PAYMENT-REQUIRED
+         * 2. Builds the Algorand payment group
+         * 3. Asks Pera to sign the required transaction(s)
+         * 4. Creates the payment payload
+         * 5. Retries the request
+         */
+        const response =
+          await client.fetch(
+            TRUST402_URL,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                target:
+                  target.trim(),
+              }),
+            },
           );
-      } catch {
-        parsedBody =
-          paidBody;
+
+        const text =
+          await response.text();
+
+        let data;
+
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = {
+            raw: text,
+          };
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            `Trust402 returned HTTP ${response.status}: ${
+              data?.message ||
+              data?.error ||
+              text
+            }`,
+          );
+        }
+
+        setResult(data);
+
+        setStatus(
+          "Payment successful. Trust report received.",
+        );
+      } catch (error) {
+        console.error(
+          "TRUST402 PAYMENT ERROR:",
+          error,
+        );
+
+        setStatus(
+          error?.message ||
+            String(error),
+        );
+      } finally {
+        setLoading(false);
       }
-
-      setResult(
-        parsedBody,
-      );
-
-      setError(null);
-    } catch (err) {
-      console.error(
-        "TRUST402 PAYMENT ERROR:",
-        err,
-      );
-
-      setError(
-        err?.message ||
-          String(err),
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /*
-   * ------------------------------------------------
-   * UI
-   * ------------------------------------------------
-   */
+    }, [
+      signer,
+      target,
+    ]);
 
   return (
-    <main>
-      <section className="card">
-        <h1>Trust402</h1>
+    <div className="app">
+      <div className="card">
+        <div className="brand">
+          <div className="logo">
+            T
+          </div>
 
-        <p className="subtitle">
-          Algorand MainNet x402 payment test
-        </p>
+          <div>
+            <h1>Trust402</h1>
 
-        {!account ? (
+            <p>
+              Paid trust & risk assessment
+              for autonomous agents
+            </p>
+          </div>
+        </div>
+
+        <div className="network">
+          <span>
+            Algorand MainNet
+          </span>
+
+          <strong>
+            $0.05 USDC
+          </strong>
+        </div>
+
+        {!activeAccount ? (
           <button
-            onClick={
-              connectWallet
-            }
+            className="primary"
+            onClick={connect}
           >
             Connect Pera Wallet
           </button>
         ) : (
           <>
             <div className="wallet">
-              <strong>
-                Connected wallet
-              </strong>
-
               <span>
-                {account}
+                Connected
               </span>
+
+              <code>
+                {activeAccount.address.slice(
+                  0,
+                  6,
+                )}
+                ...
+                {activeAccount.address.slice(
+                  -6,
+                )}
+              </code>
+
+              <button
+                className="disconnect"
+                onClick={disconnect}
+              >
+                Disconnect
+              </button>
             </div>
 
+            <label>
+              Agent / Target
+            </label>
+
+            <input
+              value={target}
+              onChange={(e) =>
+                setTarget(e.target.value)
+              }
+              placeholder="Agent, wallet, API or website"
+            />
+
             <button
-              onClick={pay}
+              className="primary"
+              onClick={runTrustCheck}
               disabled={loading}
             >
               {loading
                 ? "Processing..."
-                : "Pay $0.05 USDC"}
-            </button>
-
-            <button
-              className="secondary"
-              onClick={
-                disconnectWallet
-              }
-              disabled={loading}
-            >
-              Disconnect
+                : "Get Trust Report — $0.05"}
             </button>
           </>
         )}
 
-        {error && (
-          <div className="error">
-            <strong>
-              Payment failed
-            </strong>
-
-            <p>
-              {error}
-            </p>
+        {status && (
+          <div className="status">
+            {status}
           </div>
         )}
 
         {result && (
-          <div className="success">
-            <strong>
-              Payment successful ✓
-            </strong>
+          <div className="result">
+            <h2>
+              Trust Report
+            </h2>
 
-            <pre>
-              {JSON.stringify(
-                result,
-                null,
-                2,
-              )}
-            </pre>
+            <div className="score">
+              <strong>
+                {result.trust_score}
+              </strong>
+
+              <span>
+                / 100
+              </span>
+            </div>
+
+            <div className="risk">
+              Risk level:{" "}
+              <strong>
+                {result.risk_level}
+              </strong>
+            </div>
+
+            <div className="details">
+              <div>
+                <span>
+                  Identity
+                </span>
+
+                <strong>
+                  {
+                    result.identity
+                      ?.status
+                  }
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Wallet
+                </span>
+
+                <strong>
+                  {
+                    result.wallet
+                      ?.status
+                  }
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Reputation
+                </span>
+
+                <strong>
+                  {
+                    result.reputation
+                      ?.status
+                  }
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Confidence
+                </span>
+
+                <strong>
+                  {result.confidence}
+                </strong>
+              </div>
+            </div>
+
+            {result.warnings
+              ?.length > 0 && (
+              <div>
+                <h3>
+                  Warnings
+                </h3>
+
+                <ul>
+                  {result.warnings.map(
+                    (warning, i) => (
+                      <li key={i}>
+                        {String(
+                          warning,
+                        )}
+                      </li>
+                    ),
+                  )}
+                </ul>
+              </div>
+            )}
           </div>
         )}
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
 
-createRoot(
+/* =========================
+   ROOT
+========================= */
+
+ReactDOM.createRoot(
   document.getElementById("root"),
 ).render(
   <React.StrictMode>
-    <App />
+    <WalletProvider
+      value={walletConfig}
+    >
+      <Trust402App />
+    </WalletProvider>
   </React.StrictMode>,
 );
