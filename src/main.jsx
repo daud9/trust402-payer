@@ -5,8 +5,8 @@ import {
   WalletManager,
   useWallet,
 } from "@txnlab/use-wallet-react";
-import { x402Client } from "@x402/core/client";
-import { registerExactAvmScheme } from "@x402/avm/exact/client";
+import { x402Client, x402HTTPClient } from "@x402/core/client";
+import { ExactAvmScheme } from "@x402/avm/exact/client";
 
 /* ========================= CONFIG ========================= */
 
@@ -41,6 +41,37 @@ const safePaymentPolicy = (_version, requirements) =>
       return false;
     }
   });
+
+// Request -> 402 -> sign payment -> retry with PAYMENT-SIGNATURE header.
+async function payFetch(client, url, options) {
+  if (typeof client.fetch === "function") {
+    return client.fetch(url, options);
+  }
+
+  const first = await fetch(url, options);
+  if (first.status !== 402) return first;
+
+  const httpClient = new x402HTTPClient(client);
+
+  let body;
+  try {
+    body = await first.clone().json();
+  } catch {
+    body = undefined;
+  }
+
+  const paymentRequired = httpClient.getPaymentRequiredResponse(
+    (name) => first.headers.get(name),
+    body,
+  );
+  const payload = await httpClient.createPaymentPayload(paymentRequired);
+  const paymentHeaders = httpClient.encodePaymentSignatureHeader(payload);
+
+  return fetch(url, {
+    ...options,
+    headers: { ...(options.headers || {}), ...paymentHeaders },
+  });
+}
 
 function readReceipt(response) {
   const raw =
@@ -127,16 +158,13 @@ function Trust402App() {
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      const client = new x402Client({ schemes: [] });
+      const client = new x402Client();
+      client.register(MAINNET_CAIP2, new ExactAvmScheme(signer));
+      if (typeof client.registerPolicy === "function") {
+        client.registerPolicy(safePaymentPolicy);
+      }
 
-      registerExactAvmScheme(client, {
-        signer,
-        algodConfig: { algodUrl: ALGOD_URL },
-        networks: [MAINNET_CAIP2],
-        policies: [safePaymentPolicy],
-      });
-
-      const response = await client.fetch(TRUST402_URL, {
+      const response = await payFetch(client, TRUST402_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: cleanTarget }),
