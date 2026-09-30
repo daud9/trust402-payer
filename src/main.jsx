@@ -93,9 +93,10 @@ function App() {
     setBusy(true);
     say("Loading Pera wallet…");
     try {
-      const m = await import("@txnlab/use-wallet-react");
-      const mgr = new m.WalletManager({ wallets: [{ id: "pera" }], defaultNetwork: "mainnet" });
-      const w = mgr.wallets.find((x) => x.id === "pera");
+      const { WalletManager } = await import("@txnlab/use-wallet-react");
+      const { pera } = await import("@txnlab/use-wallet-pera");
+      const mgr = new WalletManager({ wallets: [pera()], defaultNetwork: "mainnet" });
+      const w = mgr.wallets.find((x) => x.id === "pera") || mgr.wallets[0];
       await w.connect();
       wallet.current = w;
       setAddr(w.activeAccount?.address || w.accounts?.[0]?.address || "");
