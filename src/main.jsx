@@ -15,6 +15,14 @@ const TRUST402_URL =
 const ALGOD_URL =
   "https://mainnet-api.algonode.cloud";
 
+const USDC_ASSET_ID = "31566704";
+
+/*
+ * --------------------------------------------------
+ * BASE64 HELPERS
+ * --------------------------------------------------
+ */
+
 function encodeBase64Json(value) {
   const bytes = new TextEncoder().encode(
     JSON.stringify(value),
@@ -66,9 +74,17 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
+/*
+ * --------------------------------------------------
+ * PAYMENT REQUIRED
+ * --------------------------------------------------
+ */
+
 async function getPaymentRequired(response) {
   const header =
-    response.headers.get("PAYMENT-REQUIRED");
+    response.headers.get(
+      "PAYMENT-REQUIRED",
+    );
 
   if (!header) {
     throw new Error(
@@ -79,10 +95,20 @@ async function getPaymentRequired(response) {
   return decodeBase64Json(header);
 }
 
+/*
+ * --------------------------------------------------
+ * CREATE X402 PAYMENT
+ * --------------------------------------------------
+ */
+
 async function createPayment(
   paymentRequired,
   account,
 ) {
+  /*
+   * Find Algorand exact payment requirement.
+   */
+
   const requirements =
     paymentRequired.accepts?.find(
       (item) =>
@@ -98,62 +124,92 @@ async function createPayment(
     );
   }
 
-  if (requirements.asset !== "31566704") {
+  /*
+   * Validate USDC.
+   */
+
+  if (
+    String(requirements.asset) !==
+    USDC_ASSET_ID
+  ) {
     throw new Error(
       `Unexpected payment asset: ${requirements.asset}`,
     );
   }
 
+  /*
+   * Payment amount is in atomic USDC units.
+   * 0.05 USDC = 50000.
+   */
+
   const amount = BigInt(
     requirements.amount,
   );
 
-  const algod = new algosdk.Algodv2(
-    "",
-    ALGOD_URL,
-    "",
-  );
+  /*
+   * Algod connection.
+   */
+
+  const algod =
+    new algosdk.Algodv2(
+      "",
+      ALGOD_URL,
+      "",
+    );
 
   const suggestedParams =
     await algod
       .getTransactionParams()
       .do();
 
+  /*
+   * Facilitator fee-payer address.
+   */
+
   const feePayer =
     requirements.extra?.feePayer;
 
   /*
-   * --------------------------------------------------
+   * ------------------------------------------------
    * SIMPLE PAYMENT
-   * --------------------------------------------------
+   * ------------------------------------------------
+   *
+   * Used only if the facilitator does
+   * not provide a feePayer.
    */
 
   if (!feePayer) {
-    const feePayerTxn =
-  algosdk.makePaymentTxnWithSuggestedParamsFromObject(
-    {
-      sender: feePayer,
+    const paymentTxn =
+      algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject(
+        {
+          sender: account,
 
-      receiver: feePayer,
+          receiver:
+            requirements.payTo,
 
-      note:
-        new TextEncoder().encode(
-          "x402-fee-payer",
-        ),
+          amount,
 
-      suggestedParams: {
-        ...suggestedParams,
+          assetIndex:
+            BigInt(
+              requirements.asset,
+            ),
 
-        fee: minFee * 2,
+          suggestedParams,
+        },
+      );
 
-        flatFee: true,
-      },
-    },
-  );
+    /*
+     * Single transaction still needs
+     * its own group ID.
+     */
 
     algosdk.assignGroupID([
       paymentTxn,
     ]);
+
+    /*
+     * Pera signs the payment.
+     */
 
     const signedTxns =
       await peraWallet.signTransaction([
@@ -190,7 +246,8 @@ async function createPayment(
         requirements,
 
       extensions:
-        paymentRequired.extensions || {},
+        paymentRequired.extensions ||
+        {},
 
       payload: {
         paymentGroup: [
@@ -209,20 +266,19 @@ async function createPayment(
   }
 
   /*
-   * --------------------------------------------------
+   * ------------------------------------------------
    * FEE-ABSTRACTED PAYMENT
-   * --------------------------------------------------
+   * ------------------------------------------------
    *
    * Transaction 0:
-   *   Fee payer self-payment
+   * Facilitator fee-payer transaction.
    *
    * Transaction 1:
-   *   User USDC transfer
+   * User USDC transfer.
    *
-   * Both transactions are sent to Pera
-   * so Pera can validate the SAME group ID.
-   *
-   * Pera signs ONLY transaction 1.
+   * The current x402 Algorand specification
+   * requires the fee-payer transaction to omit
+   * the "amt" field completely.
    */
 
   const minFee =
@@ -233,8 +289,21 @@ async function createPayment(
     );
 
   /*
+   * -----------------------------------------------
    * TRANSACTION 0
-   * Fee payer transaction
+   * FACILITATOR FEE-PAYER
+   * -----------------------------------------------
+   *
+   * IMPORTANT:
+   *
+   * There is intentionally NO:
+   *
+   *     amount: 0
+   *
+   * here.
+   *
+   * The Algorand x402 verifier requires the
+   * amount field to be omitted.
    */
 
   const feePayerTxn =
@@ -243,8 +312,6 @@ async function createPayment(
         sender: feePayer,
 
         receiver: feePayer,
-
-        amount: 0,
 
         note:
           new TextEncoder().encode(
@@ -262,8 +329,10 @@ async function createPayment(
     );
 
   /*
+   * -----------------------------------------------
    * TRANSACTION 1
-   * User USDC payment
+   * USER USDC PAYMENT
+   * -----------------------------------------------
    */
 
   const paymentTxn =
@@ -277,7 +346,9 @@ async function createPayment(
         amount,
 
         assetIndex:
-          BigInt(requirements.asset),
+          BigInt(
+            requirements.asset,
+          ),
 
         note:
           new TextEncoder().encode(
@@ -295,10 +366,12 @@ async function createPayment(
     );
 
   /*
-   * IMPORTANT:
+   * -----------------------------------------------
+   * ATOMIC GROUP
+   * -----------------------------------------------
    *
-   * Create the atomic group BEFORE
-   * sending anything to Pera.
+   * Transaction 0 = fee payer
+   * Transaction 1 = USDC payment
    */
 
   algosdk.assignGroupID([
@@ -307,18 +380,14 @@ async function createPayment(
   ]);
 
   /*
-   * IMPORTANT FIX:
+   * -----------------------------------------------
+   * PERA SIGNING
+   * -----------------------------------------------
    *
-   * Send BOTH transactions to Pera.
+   * Pera receives BOTH transactions so that
+   * it can validate the atomic group ID.
    *
-   * Transaction 0:
-   *   signers: [] = Pera must NOT sign it.
-   *
-   * Transaction 1:
-   *   signers: [account] = Pera signs it.
-   *
-   * Pera therefore sees the complete group
-   * and can validate the group ID.
+   * Pera signs ONLY transaction 1.
    */
 
   const signedTxns =
@@ -343,30 +412,32 @@ async function createPayment(
   }
 
   /*
-   * ARC-0025 requires the returned array
-   * to correspond to the original group.
+   * Pera returns the signed transaction
+   * that it actually signed.
    *
-   * Index 0:
-   *   null because Pera did not sign
-   *   the fee-payer transaction.
-   *
-   * Index 1:
-   *   signed user payment transaction.
+   * Because transaction 0 has signers: [],
+   * the signed USDC transaction is index 0
+   * in Pera's returned signed transaction array.
    */
 
   const signedPaymentTxn =
-  signedTxns[0];
+    signedTxns[0];
 
-if (!signedPaymentTxn) {
-  throw new Error(
-    "Pera Wallet did not return the signed USDC payment transaction.",
-  );
-}
+  if (!signedPaymentTxn) {
+    throw new Error(
+      "Pera Wallet did not return the signed USDC payment transaction.",
+    );
+  }
 
   /*
-   * The fee-payer transaction remains
-   * unsigned. The facilitator signs it
-   * during settlement.
+   * -----------------------------------------------
+   * ENCODE FEE-PAYER TRANSACTION
+   * -----------------------------------------------
+   *
+   * It remains unsigned.
+   *
+   * GoPlausible signs this transaction during
+   * facilitator verification/settlement.
    */
 
   const unsignedFeePayerTxn =
@@ -375,7 +446,9 @@ if (!signedPaymentTxn) {
     );
 
   /*
-   * Build x402 payment payload.
+   * -----------------------------------------------
+   * X402 PAYMENT PAYLOAD
+   * -----------------------------------------------
    */
 
   const paymentPayload = {
@@ -394,7 +467,8 @@ if (!signedPaymentTxn) {
       requirements,
 
     extensions:
-      paymentRequired.extensions || {},
+      paymentRequired.extensions ||
+      {},
 
     payload: {
       paymentGroup: [
@@ -411,10 +485,25 @@ if (!signedPaymentTxn) {
     },
   };
 
+  /*
+   * Debug information in browser console.
+   */
+
+  console.log(
+    "TRUST402 PAYMENT PAYLOAD:",
+    paymentPayload,
+  );
+
   return encodeBase64Json(
     paymentPayload,
   );
 }
+
+/*
+ * --------------------------------------------------
+ * APP
+ * --------------------------------------------------
+ */
 
 function App() {
   const [account, setAccount] =
@@ -429,6 +518,10 @@ function App() {
   const [error, setError] =
     useState(null);
 
+  /*
+   * Reconnect Pera session.
+   */
+
   useEffect(() => {
     peraWallet
       .reconnectSession()
@@ -439,6 +532,10 @@ function App() {
       })
       .catch(() => {});
   }, []);
+
+  /*
+   * Connect wallet.
+   */
 
   const connectWallet = async () => {
     try {
@@ -456,21 +553,34 @@ function App() {
       setAccount(accounts[0]);
     } catch (err) {
       setError(
-        err?.message || String(err),
+        err?.message ||
+          String(err),
       );
     }
   };
 
+  /*
+   * Disconnect wallet.
+   */
+
   const disconnectWallet = () => {
     peraWallet.disconnect();
+
     setAccount(null);
   };
+
+  /*
+   * ------------------------------------------------
+   * PAY
+   * ------------------------------------------------
+   */
 
   const pay = async () => {
     if (!account) {
       setError(
         "Connect Pera Wallet first.",
       );
+
       return;
     }
 
@@ -528,6 +638,11 @@ function App() {
           firstResponse,
         );
 
+      console.log(
+        "TRUST402 PAYMENT-REQUIRED:",
+        paymentRequired,
+      );
+
       /*
        * STEP 3
        * Build and sign payment.
@@ -576,51 +691,47 @@ function App() {
       const paidBody =
         await paidResponse.text();
 
+      /*
+       * --------------------------------------------
+       * PAYMENT FAILURE
+       * --------------------------------------------
+       */
+
       if (!paidResponse.ok) {
-  const paymentResponse =
-    paidResponse.headers.get(
-      "PAYMENT-RESPONSE",
-    );
+        const paymentResponse =
+          paidResponse.headers.get(
+            "PAYMENT-RESPONSE",
+          );
 
-  const paymentRequired =
-    paidResponse.headers.get(
-      "PAYMENT-REQUIRED",
-    );
+        let diagnostic =
+          "";
 
-  let diagnostic = "";
+        if (paymentResponse) {
+          try {
+            diagnostic =
+              "\n\nPAYMENT-RESPONSE:\n" +
+              JSON.stringify(
+                decodeBase64Json(
+                  paymentResponse,
+                ),
+                null,
+                2,
+              );
+          } catch {
+            diagnostic =
+              "\n\nPAYMENT-RESPONSE:\n" +
+              paymentResponse;
+          }
+        }
 
-  if (paymentResponse) {
-    try {
-      diagnostic +=
-        "\nPAYMENT-RESPONSE:\n" +
-        JSON.stringify(
-          decodeBase64Json(
-            paymentResponse,
-          ),
-          null,
-          2,
+        throw new Error(
+          `Paid request failed: HTTP ${paidResponse.status}\n\nBODY:\n${paidBody}${diagnostic}`,
         );
-    } catch {
-      diagnostic +=
-        "\nPAYMENT-RESPONSE:\n" +
-        paymentResponse;
-    }
-  }
-
-  if (paymentRequired) {
-    diagnostic +=
-      "\n\nPAYMENT-REQUIRED:\n" +
-      paymentRequired;
-  }
-
-  throw new Error(
-    `Paid request failed: HTTP ${paidResponse.status}\n\nBODY:\n${paidBody}${diagnostic}`,
-  );
-}
+      }
 
       /*
        * STEP 5
-       * Display Trust402 report.
+       * Parse Trust402 report.
        */
 
       let parsedBody;
@@ -641,6 +752,11 @@ function App() {
 
       setError(null);
     } catch (err) {
+      console.error(
+        "TRUST402 PAYMENT ERROR:",
+        err,
+      );
+
       setError(
         err?.message ||
           String(err),
@@ -649,6 +765,12 @@ function App() {
       setLoading(false);
     }
   };
+
+  /*
+   * ------------------------------------------------
+   * UI
+   * ------------------------------------------------
+   */
 
   return (
     <main>
@@ -706,7 +828,9 @@ function App() {
               Payment failed
             </strong>
 
-            <p>{error}</p>
+            <p>
+              {error}
+            </p>
           </div>
         )}
 
