@@ -89,7 +89,8 @@ let _mgr = null;
 async function getManager() {
   if (_mgr) return _mgr;
   const { WalletManager } = await import("@txnlab/use-wallet-react");
-  const loaded = await Promise.allSettled(ADAPTERS.map((x) => x.load()));
+  const list = inPera ? ADAPTERS.filter((x) => x.id === "pera") : ADAPTERS;
+  const loaded = await Promise.allSettled(list.map((x) => x.load()));
   const wallets = loaded.filter((r) => r.status === "fulfilled").map((r) => r.value);
   const mgr = new WalletManager({ wallets, defaultNetwork: "mainnet" });
   try { await mgr.resumeSessions?.(); } catch {}
@@ -98,6 +99,12 @@ async function getManager() {
 }
 const addrOf = (w) => w?.activeAccount?.address || w?.accounts?.[0]?.address || "";
 const inPera = typeof navigator !== "undefined" && /pera/i.test(navigator.userAgent);
+const chromeUrl = () => {
+  const u = location.href;
+  return /android/i.test(navigator.userAgent)
+    ? `intent://${u.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`
+    : u.replace(/^https?:/, "googlechrome:");
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function App() {
@@ -173,6 +180,7 @@ function App() {
 
   // Restore an existing session on load, and whenever the user comes back from the Pera app.
   useEffect(() => {
+    if (inPera) return undefined;
     let live = true;
     const sync = async () => {
       try {
@@ -311,19 +319,29 @@ function App() {
         <h3>2 · Wallet &amp; payment</h3>
         {!addr ? (
           <>
-            <div className="sub" style={{ marginBottom: 8 }}>Choose your Algorand wallet</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {ADAPTERS.map((x) => (
-                <button key={x.id} className="sec" style={{ marginTop: 0 }} disabled={busy} onClick={() => connect(x.id)}>
-                  {busy ? "…" : x.name}
+            {inPera ? (
+              <>
+                <div className="sub" style={{ marginBottom: 8 }}>Pera detected. Connect with the wallet you're in:</div>
+                <button className="pri" style={{ marginTop: 0 }} disabled={busy} onClick={() => connect("pera")}>
+                  {busy ? "Connecting…" : "Connect with Pera"}
                 </button>
-              ))}
-            </div>
-            {inPera && (
-              <div className="sub" style={{ marginTop: 10 }}>
-                You're inside Pera's browser, where connecting can fail. For a reliable connection, open this page in Chrome, or pick another wallet.
+                <div className="sub" style={{ marginTop: 12 }}>
+                  Pera's built-in browser sometimes blocks the connection. If it does not connect after one try, open this page in Chrome. It connects reliably there.
+                </div>
+                <button className="sec" onClick={() => { window.location.href = chromeUrl(); }}>Open in Chrome</button>
                 <button className="sec" onClick={() => navigator.clipboard?.writeText(location.href)}>Copy page link</button>
-              </div>
+              </>
+            ) : (
+              <>
+                <div className="sub" style={{ marginBottom: 8 }}>Choose your Algorand wallet</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {ADAPTERS.map((x) => (
+                    <button key={x.id} className="sec" style={{ marginTop: 0 }} disabled={busy} onClick={() => connect(x.id)}>
+                      {busy ? "…" : x.name}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </>
         ) : (
@@ -384,26 +402,4 @@ function App() {
               <b>
                 {h.s}/100 {h.d ? <em style={{ color: h.d > 0 ? "#19d3a2" : "#ff8a8a", fontStyle: "normal" }}>{h.d > 0 ? "▲" : "▼"}{Math.abs(h.d)}</em> : null}
               </b>
-            </div>
-          ))}
-          <div className="sub" style={{ marginTop: 6 }}>Tap one to re-scan and track score changes.</div>
-        </div>
-      )}
-
-      <div className="card">
-        <h3>On-chain proof</h3>
-        {tx && <div className="row"><span>This payment</span><b><a href={"https://allo.info/tx/" + tx} target="_blank" rel="noreferrer">{short(tx)}</a></b></div>}
-        <div className="row"><span>Verified MainNet settlement</span><b><a href={"https://allo.info/tx/" + PROOF_TX} target="_blank" rel="noreferrer">{short(PROOF_TX)}</a></b></div>
-        <div className="row"><span>Leaderboard</span><b><a href="https://facilitator.goplausible.xyz/dashboard/leaderboards" target="_blank" rel="noreferrer">GoPlausible</a></b></div>
-      </div>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <>
-    <Landing />
-    <div id="try"><App /></div>
-    <Footer />
-  </>,
-);
+            </div
