@@ -220,10 +220,21 @@ export default function Landing() {
 
       <section className="l-sec2">
         <h2>Simple pricing</h2>
-        <div className="l-card" style={{ maxWidth: 360, margin: "0 auto", textAlign: "center" }}>
-          <div style={{ fontSize: 42, fontWeight: 800 }}>$0.05</div>
-          <p>USDC per verification. No subscription. No account.</p>
-          <button className="l-pri" style={{ marginTop: 14 }} onClick={() => go("try")}>Try Trust402</button>
+        <p className="l-sub">Pay per report. No subscription, no account.</p>
+        <div className="l-grid">
+          <div className="l-card" style={{ textAlign: "center" }}>
+            <span className="l-n">BASIC</span>
+            <div style={{ fontSize: 40, fontWeight: 800 }}>$0.05</div>
+            <p>Account age, balance, activity, rekey status, USDC readiness, NFD identity, HTTPS, domain age, security headers, x402 payTo check.</p>
+          </div>
+          <div className="l-card" style={{ textAlign: "center", borderColor: "#14614f" }}>
+            <span className="l-n">ADVANCED</span>
+            <div style={{ fontSize: 40, fontWeight: 800 }}>$0.20</div>
+            <p>Everything in Basic plus transaction flow, counterparty diversity, velocity, holdings, asset issuance, domain expiry and security.txt.</p>
+          </div>
+        </div>
+        <div className="l-cta" style={{ marginTop: 16 }}>
+          <button className="l-pri" onClick={() => go("try")}>Try Trust402</button>
         </div>
       </section>
 
