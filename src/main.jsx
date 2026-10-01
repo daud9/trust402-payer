@@ -76,15 +76,25 @@ if (typeof document !== "undefined" && !document.querySelector('meta[name="name"
   document.head.appendChild(m); // app name shown in Pera's connect sheet
 }
 
-let _wallet = null;
-async function getWallet() {
-  if (_wallet) return _wallet;
+const ADAPTERS = [
+  { id: "pera", name: "Pera", load: async () => (await import("@txnlab/use-wallet-pera")).pera() },
+  { id: "defly", name: "Defly", load: async () => (await import("@txnlab/use-wallet-defly")).defly() },
+  { id: "lute", name: "Lute", load: async () => (await import("@galaxypay/use-wallet-lute")).lute({ siteName: "Trust402" }) },
+  { id: "exodus", name: "Exodus", load: async () => (await import("@txnlab/use-wallet-exodus")).exodus() },
+  { id: "kibisis", name: "Kibisis", load: async () => (await import("@txnlab/use-wallet-kibisis")).kibisis() },
+];
+
+// One manager for every wallet that loads. If one adapter package fails, the others still work.
+let _mgr = null;
+async function getManager() {
+  if (_mgr) return _mgr;
   const { WalletManager } = await import("@txnlab/use-wallet-react");
-  const { pera } = await import("@txnlab/use-wallet-pera");
-  const mgr = new WalletManager({ wallets: [pera()], defaultNetwork: "mainnet" });
+  const loaded = await Promise.allSettled(ADAPTERS.map((x) => x.load()));
+  const wallets = loaded.filter((r) => r.status === "fulfilled").map((r) => r.value);
+  const mgr = new WalletManager({ wallets, defaultNetwork: "mainnet" });
   try { await mgr.resumeSessions?.(); } catch {}
-  _wallet = mgr.wallets.find((x) => x.id === "pera") || mgr.wallets[0];
-  return _wallet;
+  _mgr = mgr;
+  return mgr;
 }
 const addrOf = (w) => w?.activeAccount?.address || w?.accounts?.[0]?.address || "";
 const inPera = typeof navigator !== "undefined" && /pera/i.test(navigator.userAgent);
@@ -137,21 +147,24 @@ function App() {
     setBusy(false);
   }
 
-  async function connect() {
+  async function connect(id) {
+    const name = ADAPTERS.find((x) => x.id === id)?.name || "wallet";
     setBusy(true);
-    say("Opening Pera…");
+    say(`Opening ${name}…`);
     try {
-      const w = await getWallet();
+      const mgr = await getManager();
+      const w = mgr.wallets.find((x) => x.id === id);
+      if (!w) throw new Error(`${name} is not available in this browser. Try another wallet.`);
       if (!addrOf(w)) {
         try { await w.connect(); } catch { /* modal closed or pairing hiccup: check below */ }
-        if (!addrOf(w)) say("Waiting for approval in Pera…");
+        if (!addrOf(w)) say(`Waiting for approval in ${name}…`);
         for (let i = 0; i < 10 && !addrOf(w); i++) await sleep(750);
       }
       const a = addrOf(w);
-      if (!a) throw new Error("Not connected yet. Tap Connect again and approve in Pera.");
+      if (!a) throw new Error(`Not connected yet. Tap ${name} again and approve in the wallet.`);
       wallet.current = w;
       setAddr(a);
-      say("Wallet connected.", "ok");
+      say(`${name} connected.`, "ok");
     } catch (e) {
       say(e?.message || String(e), "err");
     }
@@ -163,7 +176,8 @@ function App() {
     let live = true;
     const sync = async () => {
       try {
-        const w = await getWallet();
+        const mgr = await getManager();
+        const w = mgr.activeWallet || mgr.wallets.find((x) => addrOf(x));
         const a = addrOf(w);
         if (live && a) { wallet.current = w; setAddr(a); }
       } catch {}
@@ -201,7 +215,7 @@ function App() {
       let res;
       const opts = body();
       if (typeof client.fetch === "function") {
-        say("Approve the $0.05 USDC payment in Pera…");
+        say("Approve the payment in your wallet…");
         res = await client.fetch(endpoint, opts);
       } else {
         const first = await fetch(endpoint, opts);
@@ -211,7 +225,7 @@ function App() {
           let b;
           try { b = await first.clone().json(); } catch {}
           const req = http.getPaymentRequiredResponse((n) => first.headers.get(n), b);
-          say("Approve the $0.05 USDC payment in Pera…");
+          say("Approve the payment in your wallet…");
           const payload = await http.createPaymentPayload(req);
           say("Signed. Settling on Algorand MainNet…");
           res = await fetch(endpoint, { ...opts, headers: { ...opts.headers, ...http.encodePaymentSignatureHeader(payload) } });
@@ -297,10 +311,17 @@ function App() {
         <h3>2 · Wallet &amp; payment</h3>
         {!addr ? (
           <>
-            <button className="pri" disabled={busy} onClick={connect}>{busy ? "Connecting…" : "Connect Pera Wallet"}</button>
+            <div className="sub" style={{ marginBottom: 8 }}>Choose your Algorand wallet</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {ADAPTERS.map((x) => (
+                <button key={x.id} className="sec" style={{ marginTop: 0 }} disabled={busy} onClick={() => connect(x.id)}>
+                  {busy ? "…" : x.name}
+                </button>
+              ))}
+            </div>
             {inPera && (
               <div className="sub" style={{ marginTop: 10 }}>
-                You're inside Pera's browser, where wallet connection can fail. For a reliable connection, open this page in Chrome.
+                You're inside Pera's browser, where connecting can fail. For a reliable connection, open this page in Chrome, or pick another wallet.
                 <button className="sec" onClick={() => navigator.clipboard?.writeText(location.href)}>Copy page link</button>
               </div>
             )}
