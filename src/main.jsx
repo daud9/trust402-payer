@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import Landing, { Footer } from "./Landing.jsx";
 
@@ -69,6 +69,27 @@ const policy = (_v, reqs) =>
     }
   });
 
+if (typeof document !== "undefined" && !document.querySelector('meta[name="name"]')) {
+  const m = document.createElement("meta");
+  m.name = "name";
+  m.content = "Trust402";
+  document.head.appendChild(m); // app name shown in Pera's connect sheet
+}
+
+let _wallet = null;
+async function getWallet() {
+  if (_wallet) return _wallet;
+  const { WalletManager } = await import("@txnlab/use-wallet-react");
+  const { pera } = await import("@txnlab/use-wallet-pera");
+  const mgr = new WalletManager({ wallets: [pera()], defaultNetwork: "mainnet" });
+  try { await mgr.resumeSessions?.(); } catch {}
+  _wallet = mgr.wallets.find((x) => x.id === "pera") || mgr.wallets[0];
+  return _wallet;
+}
+const addrOf = (w) => w?.activeAccount?.address || w?.accounts?.[0]?.address || "";
+const inPera = typeof navigator !== "undefined" && /pera/i.test(navigator.userAgent);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 function App() {
   const [target, setTarget] = useState(EXAMPLES[0]);
   const [addr, setAddr] = useState("");
@@ -118,21 +139,40 @@ function App() {
 
   async function connect() {
     setBusy(true);
-    say("Loading Pera wallet…");
+    say("Opening Pera…");
     try {
-      const { WalletManager } = await import("@txnlab/use-wallet-react");
-      const { pera } = await import("@txnlab/use-wallet-pera");
-      const mgr = new WalletManager({ wallets: [pera()], defaultNetwork: "mainnet" });
-      const w = mgr.wallets.find((x) => x.id === "pera") || mgr.wallets[0];
-      await w.connect();
+      const w = await getWallet();
+      if (!addrOf(w)) {
+        try { await w.connect(); } catch { /* modal closed or pairing hiccup: check below */ }
+        if (!addrOf(w)) say("Waiting for approval in Pera…");
+        for (let i = 0; i < 10 && !addrOf(w); i++) await sleep(750);
+      }
+      const a = addrOf(w);
+      if (!a) throw new Error("Not connected yet. Tap Connect again and approve in Pera.");
       wallet.current = w;
-      setAddr(w.activeAccount?.address || w.accounts?.[0]?.address || "");
+      setAddr(a);
       say("Wallet connected.", "ok");
     } catch (e) {
-      say("Wallet could not load: " + (e?.message || e), "err");
+      say(e?.message || String(e), "err");
     }
     setBusy(false);
   }
+
+  // Restore an existing session on load, and whenever the user comes back from the Pera app.
+  useEffect(() => {
+    let live = true;
+    const sync = async () => {
+      try {
+        const w = await getWallet();
+        const a = addrOf(w);
+        if (live && a) { wallet.current = w; setAddr(a); }
+      } catch {}
+    };
+    sync();
+    const onVis = () => { if (document.visibilityState === "visible") sync(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { live = false; document.removeEventListener("visibilitychange", onVis); };
+  }, []);
 
   async function disconnect() {
     try { await wallet.current?.disconnect(); } catch {}
@@ -256,7 +296,15 @@ function App() {
       <div className="card">
         <h3>2 · Wallet &amp; payment</h3>
         {!addr ? (
-          <button className="pri" disabled={busy} onClick={connect}>Connect Pera Wallet</button>
+          <>
+            <button className="pri" disabled={busy} onClick={connect}>{busy ? "Connecting…" : "Connect Pera Wallet"}</button>
+            {inPera && (
+              <div className="sub" style={{ marginTop: 10 }}>
+                You're inside Pera's browser, where wallet connection can fail. For a reliable connection, open this page in Chrome.
+                <button className="sec" onClick={() => navigator.clipboard?.writeText(location.href)}>Copy page link</button>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <div className="row"><span>Connected</span><b>{short(addr)}</b></div>
