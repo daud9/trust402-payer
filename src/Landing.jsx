@@ -120,7 +120,7 @@ function Copy({ text }) {
   );
 }
 
-export default function Landing() {
+export default function Landing({ children }) {
   const [tab, setTab] = useState("Wallet");
   const [open, setOpen] = useState(false);
   const [st, setSt] = useState(null);
@@ -190,6 +190,8 @@ export default function Landing() {
 < `}<span className="g">200 OK</span>{`  trust_score 84 · low risk`}</pre>
         </div>
       </section>
+ 
+      {children}
 
       <section className="l-sec2" id="data">
         <div className="l-eyebrow" style={{ textAlign: "center" }}>Live data</div>
@@ -236,8 +238,7 @@ export default function Landing() {
           ))}
         </div>
       </section>
-     
-      
+
       <section className="l-sec2">
         <h2>A machine-readable result</h2>
         <p className="l-sub">Sample responses. Real reports include the full list of checks.</p>
@@ -300,7 +301,7 @@ export default function Landing() {
       <section className="l-hero" style={{ paddingBottom: 6 }}>
         <h1 style={{ fontSize: "clamp(26px,7vw,42px)" }}>Trust before you <em>transact</em>.</h1>
         <p>Agents won't just need the ability to pay. They'll need to know who they're paying.</p>
-        <button className="l-pri" onClick={() => go("try")}>Try Trust402 below ↓</button>
+        <button className="l-pri" onClick={() => go("try")}>Try Trust402 ↑</button>
       </section>
 
       <div className="l-strip">
