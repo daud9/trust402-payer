@@ -428,3 +428,11 @@ function App() {
     </div>
   );
 }
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <>
+    <Landing />
+    <div id="try"><App /></div>
+    <Footer />
+  </>,
+);
