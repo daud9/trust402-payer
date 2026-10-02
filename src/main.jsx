@@ -89,7 +89,7 @@ let _mgr = null;
 async function getManager() {
   if (_mgr) return _mgr;
   const { WalletManager } = await import("@txnlab/use-wallet-react");
-  const list = inPera ? ADAPTERS.filter((x) => x.id === "pera") : ADAPTERS;
+  const list = inWallet ? ADAPTERS.filter((x) => x.id === inWallet) : ADAPTERS;
   const loaded = await Promise.allSettled(list.map((x) => x.load()));
   const wallets = loaded.filter((r) => r.status === "fulfilled").map((r) => r.value);
   const mgr = new WalletManager({ wallets, defaultNetwork: "mainnet" });
@@ -98,7 +98,17 @@ async function getManager() {
   return mgr;
 }
 const addrOf = (w) => w?.activeAccount?.address || w?.accounts?.[0]?.address || "";
-const inPera = typeof navigator !== "undefined" && /pera/i.test(navigator.userAgent);
+const detectWallet = () => {
+  if (typeof window === "undefined") return null;
+  const ua = navigator.userAgent || "";
+  if (window.exodus?.algorand) return "exodus";
+  if (/defly/i.test(ua) || window.deflyWallet) return "defly";
+  if (/pera/i.test(ua)) return "pera";
+  return null;
+};
+const inWallet = detectWallet();
+const inPera = inWallet === "pera";
+const walletName = (id) => ADAPTERS.find((x) => x.id === id)?.name || "wallet";
 const chromeUrl = () => {
   const u = location.href;
   return /android/i.test(navigator.userAgent)
@@ -180,7 +190,7 @@ function App() {
 
   // Restore an existing session on load, and whenever the user comes back from the Pera app.
   useEffect(() => {
-    if (inPera) return undefined;
+    if (inWallet) { connect(inWallet); return undefined; }
     let live = true;
     const sync = async () => {
       try {
@@ -319,14 +329,14 @@ function App() {
         <h3>2 · Wallet &amp; payment</h3>
         {!addr ? (
           <>
-            {inPera ? (
+            {inWallet ? (
               <>
-                <div className="sub" style={{ marginBottom: 8 }}>Pera detected. Connect with the wallet you're in:</div>
-                <button className="pri" style={{ marginTop: 0 }} disabled={busy} onClick={() => connect("pera")}>
-                  {busy ? "Connecting…" : "Connect with Pera"}
+                <div className="sub" style={{ marginBottom: 8 }}>{walletName(inWallet)} detected. Connecting with the wallet you are in:</div>
+                <button className="pri" style={{ marginTop: 0 }} disabled={busy} onClick={() => connect(inWallet)}>
+                  {busy ? "Connecting…" : `Connect with ${walletName(inWallet)}`}
                 </button>
                 <div className="sub" style={{ marginTop: 12 }}>
-                  Pera's built-in browser sometimes blocks the connection. If it does not connect after one try, open this page in Chrome. It connects reliably there.
+                  Some wallet browsers block connections from outside pages. If it does not connect after one try, open this page in Chrome or on desktop, where it connects reliably.
                 </div>
                 <button className="sec" onClick={() => { window.location.href = chromeUrl(); }}>Open in Chrome</button>
                 <button className="sec" onClick={() => navigator.clipboard?.writeText(location.href)}>Copy page link</button>
@@ -358,7 +368,7 @@ function App() {
         )}
       </div>
 
-      {result && (
+       {result && (
         <div className="card">
           <h3>Trust report</h3>
           {result.trust_score != null ? (
@@ -402,7 +412,7 @@ function App() {
               <b>
                 {h.s}/100 {h.d ? <em style={{ color: h.d > 0 ? "#19d3a2" : "#ff8a8a", fontStyle: "normal" }}>{h.d > 0 ? "▲" : "▼"}{Math.abs(h.d)}</em> : null}
               </b>
-             </div>
+            </div>
           ))}
           <div className="sub" style={{ marginTop: 6 }}>Tap one to re-scan and track score changes.</div>
         </div>
@@ -413,15 +423,3 @@ function App() {
         {tx && <div className="row"><span>This payment</span><b><a href={"https://allo.info/tx/" + tx} target="_blank" rel="noreferrer">{short(tx)}</a></b></div>}
         <div className="row"><span>Verified MainNet settlement</span><b><a href={"https://allo.info/tx/" + PROOF_TX} target="_blank" rel="noreferrer">{short(PROOF_TX)}</a></b></div>
         <div className="row"><span>Leaderboard</span><b><a href="https://facilitator.goplausible.xyz/dashboard/leaderboards" target="_blank" rel="noreferrer">GoPlausible</a></b></div>
-      </div>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <>
-    <Landing />
-    <div id="try"><App /></div>
-    <Footer />
-  </>,
-);
