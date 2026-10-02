@@ -368,7 +368,7 @@ function App() {
         )}
       </div>
 
-       {result && (
+      {result && (
         <div className="card">
           <h3>Trust report</h3>
           {result.trust_score != null ? (
@@ -422,4 +422,9 @@ function App() {
         <h3>On-chain proof</h3>
         {tx && <div className="row"><span>This payment</span><b><a href={"https://allo.info/tx/" + tx} target="_blank" rel="noreferrer">{short(tx)}</a></b></div>}
         <div className="row"><span>Verified MainNet settlement</span><b><a href={"https://allo.info/tx/" + PROOF_TX} target="_blank" rel="noreferrer">{short(PROOF_TX)}</a></b></div>
+        <div className="row"><span>Leaderboard</span><b><a href="https://facilitator.goplausible.xyz/dashboard/leaderboards" target="_blank" rel="noreferrer">{short(PROOF_TX)}</a></b></div>
         <div className="row"><span>Leaderboard</span><b><a href="https://facilitator.goplausible.xyz/dashboard/leaderboards" target="_blank" rel="noreferrer">GoPlausible</a></b></div>
+      </div>
+    </div>
+  );
+}
