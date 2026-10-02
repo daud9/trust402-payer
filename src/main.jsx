@@ -54,7 +54,6 @@ input{width:100%;padding:12px;border-radius:10px;border:1px solid #223559;backgr
 .risk{display:inline-block;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;text-transform:uppercase}
 a{color:#5fb0ff}pre{white-space:pre-wrap;word-break:break-all;font-size:11px;color:#9fb3d6;margin:0}
 `;
-
 const short = (a = "") => (a.length > 14 ? a.slice(0, 6) + "…" + a.slice(-6) : a);
 const riskColor = (r = "") =>
   /low/i.test(r) ? ["#0b2a24", "#19d3a2"] : /high|crit/i.test(r) ? ["#33141a", "#ff6b6b"] : ["#33290f", "#ffc857"];
@@ -276,18 +275,8 @@ function App() {
   return (
     <div className="wrap">
       <style>{css}</style>
-      <div className="brand">
-        <div className="logo">T</div>
-        <div>
-          <h1>Trust402</h1>
-          <p className="sub">Pay-per-request trust &amp; risk checks for AI agents</p>
-        </div>
-      </div>
-      <div className="badges">
-        <span className="badge g">$0.05 USDC / call</span>
-        <span className="badge">Algorand MainNet</span>
-        <span className="badge">x402 · GoPlausible</span>
-      </div>
+      <h2 style={{ textAlign: "center", margin: "4px 0 4px", fontSize: 26 }}>Run a trust check</h2>
+      <p className="sub" style={{ textAlign: "center", margin: "0 0 14px" }}>Pick a target, connect your Algorand wallet and pay per report. Basic $0.05 · Advanced $0.20 · USDC on MainNet.</p>
       <div className="steps">
         {["Terms", "Connect", "Pay", "Report"].map((s, i) => (
           <div key={s} className={"step " + (step === i + 1 ? "on" : step > i + 1 ? "done" : "")}>{i + 1}. {s}</div>
@@ -302,7 +291,7 @@ function App() {
             <div key={x.id} onClick={() => setTier(x.id)} style={{ flex: 1, padding: 10, borderRadius: 12, cursor: "pointer", border: "1px solid " + (tier === x.id ? "#19d3a2" : "#223559"), background: tier === x.id ? "#0b2a24" : "#0a1120" }}>
               <b>{x.label} · {x.price}</b>
               <div className="sub" style={{ fontSize: 11, marginTop: 2 }}>{x.blurb}</div>
-            </div>
+       </div>
           ))}
         </div>
         <div className="sub" style={{ marginTop: 8 }}>
@@ -422,7 +411,6 @@ function App() {
         <h3>On-chain proof</h3>
         {tx && <div className="row"><span>This payment</span><b><a href={"https://allo.info/tx/" + tx} target="_blank" rel="noreferrer">{short(tx)}</a></b></div>}
         <div className="row"><span>Verified MainNet settlement</span><b><a href={"https://allo.info/tx/" + PROOF_TX} target="_blank" rel="noreferrer">{short(PROOF_TX)}</a></b></div>
-        <div className="row"><span>Leaderboard</span><b><a href="https://facilitator.goplausible.xyz/dashboard/leaderboards" target="_blank" rel="noreferrer">{short(PROOF_TX)}</a></b></div>
         <div className="row"><span>Leaderboard</span><b><a href="https://facilitator.goplausible.xyz/dashboard/leaderboards" target="_blank" rel="noreferrer">GoPlausible</a></b></div>
       </div>
     </div>
@@ -431,8 +419,9 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <>
-    <Landing />
-    <div id="try"><App /></div>
+    <Landing>
+      <div id="try"><App /></div>
+    </Landing>
     <Footer />
   </>,
 );
